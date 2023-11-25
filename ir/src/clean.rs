@@ -92,7 +92,7 @@ pub fn clean_unreachable_elses(code: &mut Vec<Instr>) {
 
 pub fn reduce_cmp(code: &mut Vec<Instr>) {
     for instr in code {
-        instr.visit_non_nested_top_exprs_mut(&mut |expr| {
+        instr.visit_top_exprs_mut(&mut |expr| {
             expr.visit_mut_post(&mut |e| if let Expr::MonOp(m, box Expr::BinOp(BinOp::Cmp, l, r)) = e {
                 match m {
                     MonOp::CmpEq => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
@@ -105,5 +105,21 @@ pub fn reduce_cmp(code: &mut Vec<Instr>) {
                 }
             });
         });
+    }
+}
+
+pub fn move_constants_right(code: &mut Vec<Instr>) {
+    for instr in code {
+        instr.visit_top_exprs_mut(&mut |expr| {
+            expr.visit_mut_post(&mut |e| match e {
+                Expr::BinOp(BinOp::Add, box Expr::ULit(l, t), r) =>
+                    *e = Expr::BinOp(BinOp::Add, Box::new(r.take()), Box::new(Expr::ULit(*l, *t))),
+                Expr::BinOp(BinOp::Add, box Expr::ILit(l, t), r) if *l >= 0 =>
+                    *e = Expr::BinOp(BinOp::Add, Box::new(r.take()), Box::new(Expr::ILit(*l, *t))),
+                Expr::BinOp(BinOp::Add, box Expr::ILit(l, t), r) if *l < 0 =>
+                    *e = Expr::BinOp(BinOp::Sub, Box::new(r.take()), Box::new(Expr::ILit(-*l, *t))),
+                _ => {}
+            })
+        })
     }
 }

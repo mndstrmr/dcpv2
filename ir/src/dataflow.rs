@@ -80,7 +80,7 @@ fn maybe_inline_single_use_pair(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize,
     let Instr::Store { src: val, .. } = blocks[node].code.remove(src) else { unreachable!() };
     let mut val = Some(val);
 
-    blocks[node].code[dst - 1].visit_non_nested_top_exprs_mut(&mut |e| {
+    blocks[node].code[dst - 1].visit_top_exprs_mut(&mut |e| {
         e.visit_mut_post(&mut |e| if let Expr::Name(nm) = e && *nm == name {
             *e = val.take().unwrap();
         });

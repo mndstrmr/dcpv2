@@ -159,25 +159,35 @@ impl Instr {
     }
 
     pub fn visit_non_nested_top_exprs<F>(&self, f: &mut F) where F: FnMut(&Expr) {
-        match self {
+        self.visit(&mut |instr| match instr {
             Instr::Branch { cond: Some(cond), .. } => f(cond),
+            Instr::Store { src, dest: Binding::Deref(e), .. } => {
+                f(src);
+                f(e);
+            }
             Instr::Store { src, .. } => f(src),
             Instr::Return { value, .. } => f(value),
             Instr::While { cond, .. } => f(cond),
+            Instr::If { cond, .. } => f(cond),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
-            Instr::If { .. } | Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
-        }
+            Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
+        })
     }
 
-    pub fn visit_non_nested_top_exprs_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Expr) {
-        match self {
+    pub fn visit_top_exprs_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Expr) {
+        self.visit_mut(&mut |instr| match instr {
             Instr::Branch { cond: Some(cond), .. } => f(cond),
+            Instr::Store { src, dest: Binding::Deref(e), .. } => {
+                f(src);
+                f(e);
+            }
             Instr::Store { src, .. } => f(src),
             Instr::Return { value, .. } => f(value),
             Instr::While { cond, .. } => f(cond),
+            Instr::If { cond, .. } => f(cond),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
-            Instr::If { .. } | Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
-        }
+            Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
+        })
     }
 
     // Needs to be &mut F since otherwise we get weird type errors (most likely a compiler bug I think)
@@ -223,6 +233,14 @@ impl Instr {
                 i += 1;
             }
         }
+    }
+
+    pub fn visit_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Instr) {
+        f(self);
+        self.filter_mut(&mut |i| {
+            f(i);
+            false
+        })
     }
     
     pub fn visit_mut_all<F>(instrs: &mut Vec<Instr>, f: &mut F) where F: FnMut(&mut Instr) {

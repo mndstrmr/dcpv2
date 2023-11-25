@@ -28,6 +28,8 @@ fn main() {
         ir::if_break_negate(&mut func.code);
         ir::final_continue(&mut func.code);
         ir::while_gen(&mut func.code);
+        
+        ir::move_constants_right(&mut func.code);
 
         ir::Instr::dump_block(&func.code);
     }

@@ -32,6 +32,10 @@ const R15: Name = Name(15);
 
 const FLAGS: Name = Name(16);
 
+pub fn frame_ptr_name() -> Name {
+    RBP
+}
+
 fn reg_to_name(reg: RegId) -> Option<Name> {
     match reg.0 as u32 {
         arch::x86::X86Reg::X86_REG_SP | arch::x86::X86Reg::X86_REG_ESP | arch::x86::X86Reg::X86_REG_RSP => Some(RSP),
@@ -76,16 +80,16 @@ fn op_expr(op: &arch::x86::X86Operand, typ: Typ) -> Expr {
     match op.op_type {
         arch::x86::X86OperandType::Reg(reg) => Expr::Name(reg_to_name(reg).unwrap()),
         arch::x86::X86OperandType::Imm(n) => Expr::ILit(n, typ),
-        arch::x86::X86OperandType::Mem(mem) => Expr::Deref(Box::new(mem_addr(&mem))),
+        arch::x86::X86OperandType::Mem(mem) => Expr::Deref(Box::new(mem_addr(&mem)), typ),
         arch::x86::X86OperandType::Invalid => panic!("Invalid")
     }
 }
 
-fn op_binding(op: &arch::x86::X86Operand) -> Binding {
+fn op_binding(op: &arch::x86::X86Operand, typ: Typ) -> Binding {
     match op.op_type {
         arch::x86::X86OperandType::Reg(reg) => Binding::Name(reg_to_name(reg).unwrap()),
         arch::x86::X86OperandType::Imm(_) => panic!("Bad lhs"),
-        arch::x86::X86OperandType::Mem(mem) => Binding::Deref(mem_addr(&mem)),
+        arch::x86::X86OperandType::Mem(mem) => Binding::Deref(mem_addr(&mem), typ),
         arch::x86::X86OperandType::Invalid => panic!("Invalid")
     }
 }
@@ -97,35 +101,13 @@ fn op_label(op: &arch::x86::X86Operand) -> Label {
     }
 }
 
-fn op_typ(op: &arch::x86::X86Operand) -> Option<Typ> {
-    match op.op_type {
-        arch::x86::X86OperandType::Reg(reg) => match reg.0 as u32 {
-            arch::x86::X86Reg::X86_REG_SP | arch::x86::X86Reg::X86_REG_BP | arch::x86::X86Reg::X86_REG_DI |
-            arch::x86::X86Reg::X86_REG_SI | arch::x86::X86Reg::X86_REG_AX | arch::x86::X86Reg::X86_REG_CX |
-            arch::x86::X86Reg::X86_REG_BX | arch::x86::X86Reg::X86_REG_DX | arch::x86::X86Reg::X86_REG_R8W |
-            arch::x86::X86Reg::X86_REG_R9W | arch::x86::X86Reg::X86_REG_R10W | arch::x86::X86Reg::X86_REG_R11W |
-            arch::x86::X86Reg::X86_REG_R12W | arch::x86::X86Reg::X86_REG_R13W | arch::x86::X86Reg::X86_REG_R14W |
-            arch::x86::X86Reg::X86_REG_R15W => Some(Typ::N16),
-            
-            arch::x86::X86Reg::X86_REG_ESP | arch::x86::X86Reg::X86_REG_EBP | arch::x86::X86Reg::X86_REG_EDI |
-            arch::x86::X86Reg::X86_REG_ESI | arch::x86::X86Reg::X86_REG_EAX | arch::x86::X86Reg::X86_REG_ECX |
-            arch::x86::X86Reg::X86_REG_EBX | arch::x86::X86Reg::X86_REG_EDX | arch::x86::X86Reg::X86_REG_R8D |
-            arch::x86::X86Reg::X86_REG_R9D | arch::x86::X86Reg::X86_REG_R10D | arch::x86::X86Reg::X86_REG_R11D |
-            arch::x86::X86Reg::X86_REG_R12D | arch::x86::X86Reg::X86_REG_R13D | arch::x86::X86Reg::X86_REG_R14D |
-            arch::x86::X86Reg::X86_REG_R15D => Some(Typ::N32),
-
-            arch::x86::X86Reg::X86_REG_RSP | arch::x86::X86Reg::X86_REG_RBP | arch::x86::X86Reg::X86_REG_RDI |
-            arch::x86::X86Reg::X86_REG_RSI | arch::x86::X86Reg::X86_REG_RAX | arch::x86::X86Reg::X86_REG_RCX |
-            arch::x86::X86Reg::X86_REG_RBX | arch::x86::X86Reg::X86_REG_RDX | arch::x86::X86Reg::X86_REG_R8 |
-            arch::x86::X86Reg::X86_REG_R9 | arch::x86::X86Reg::X86_REG_R10 | arch::x86::X86Reg::X86_REG_R11 |
-            arch::x86::X86Reg::X86_REG_R12 | arch::x86::X86Reg::X86_REG_R13 | arch::x86::X86Reg::X86_REG_R14 |
-            arch::x86::X86Reg::X86_REG_R15 => Some(Typ::N64),
-            
-            x => panic!("Bad reg {x}")
-        },
-        arch::x86::X86OperandType::Imm(_) => None,
-        arch::x86::X86OperandType::Mem(_) => None,
-        arch::x86::X86OperandType::Invalid => panic!("Invalid mem type")
+fn op_typ(op: &arch::x86::X86Operand) -> Typ {
+    match op.size {
+        1 => Typ::N8,
+        2 => Typ::N16,
+        4 => Typ::N32,
+        8 => Typ::N64,
+        _ => panic!("Bad type")
     }
 }
 
@@ -167,10 +149,10 @@ pub fn gen_ir_func(raw: &BinFunc) -> Result<Func, X86Error> {
         let opcode = arch::x86::X86Insn::from(i.id().0);
         match opcode {
             arch::x86::X86Insn::X86_INS_PUSH => {
-                let typ = op_typ(op(0)).unwrap();
+                let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: Binding::Deref(Expr::Name(RSP)),
+                    dest: Binding::Deref(Expr::Name(RSP), typ),
                     src: op_expr(op(0), typ)
                 });
                 func.code.push(Instr::Store {
@@ -188,42 +170,42 @@ pub fn gen_ir_func(raw: &BinFunc) -> Result<Func, X86Error> {
                     src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::ULit(8, Typ::N64)))
                 });
 
-                let typ = op_typ(op(0)).unwrap();
+                let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: op_binding(op(0)),
-                    src: Expr::Deref(Box::new(Expr::Name(RSP)))
+                    dest: op_binding(op(0), typ),
+                    src: Expr::Deref(Box::new(Expr::Name(RSP)), typ)
                 });
             }
             arch::x86::X86Insn::X86_INS_RET => {
                 func.code.push(Instr::Return { loc, typ: Typ::N64, value: Expr::Name(RAX) });
             }
             arch::x86::X86Insn::X86_INS_MOV => {
-                let typ = op_typ(op(0)).or_else(|| op_typ(op(1))).unwrap_or(Typ::N64);
+                let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: op_binding(op(1)),
+                    dest: op_binding(op(1), typ),
                     src: op_expr(op(0), typ)
                 });
             }
             arch::x86::X86Insn::X86_INS_ADD => {
-                let typ = op_typ(op(0)).or_else(|| op_typ(op(1))).unwrap_or(Typ::N64);
+                let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: op_binding(op(1)),
+                    dest: op_binding(op(1), typ),
                     src: Expr::BinOp(BinOp::Add, Box::new(op_expr(op(1), typ)), Box::new(op_expr(op(0), typ)))
                 });
             }
             arch::x86::X86Insn::X86_INS_SUB => {
-                let typ = op_typ(op(0)).or_else(|| op_typ(op(1))).unwrap_or(Typ::N64);
+                let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: op_binding(op(1)),
+                    dest: op_binding(op(1), typ),
                     src: Expr::BinOp(BinOp::Sub, Box::new(op_expr(op(1), typ)), Box::new(op_expr(op(0), typ)))
                 });
             }
             arch::x86::X86Insn::X86_INS_CMP => {
-                let typ = op_typ(op(0)).or_else(|| op_typ(op(1))).unwrap_or(Typ::N64);
+                let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Name(FLAGS),

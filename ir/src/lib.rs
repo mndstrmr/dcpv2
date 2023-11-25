@@ -20,6 +20,9 @@ pub use loopgen::*;
 mod whilegen;
 pub use whilegen::*;
 
+mod frame;
+pub use frame::*;
+
 pub mod visitor;
 
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};
@@ -29,9 +32,20 @@ pub struct Loc {
     pub addr: u64
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Typ {
     N8, N16, N32, N64
+}
+
+impl Typ {
+    pub fn width(&self) -> i64 {
+        match self {
+            Typ::N8 => 1,
+            Typ::N16 => 2,
+            Typ::N32 => 4,
+            Typ::N64 => 8,
+        }
+    }
 }
 
 impl Display for Typ {
@@ -139,19 +153,19 @@ pub struct Label(pub usize);
 #[derive(Debug)]
 pub enum Binding {
     Name(Name),
-    Deref(Expr)
+    Deref(Expr, Typ)
 }
 
 impl Display for Binding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Binding::Name(n) => write!(f, "r{}", n.0),
-            Binding::Deref(d) => write!(f, "*{d}")
+            Binding::Deref(d, _) => write!(f, "*{d}")
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinOp {
     Add, Sub, Mul, Div,
     Lsl, Lsr, Asr,
@@ -212,7 +226,7 @@ pub enum Expr {
     ILit(i64, Typ),
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     MonOp(MonOp, Box<Expr>),
-    Deref(Box<Expr>)
+    Deref(Box<Expr>, Typ)
 }
 
 impl Display for Expr {
@@ -223,7 +237,7 @@ impl Display for Expr {
             Expr::ILit(i, _) => write!(f, "{i}"),
             Expr::BinOp(op, l, r) => write!(f, "({l} {op} {r})"),
             Expr::MonOp(op, r) => write!(f, "{op}{r}"),
-            Expr::Deref(e) => write!(f, "*{e}"),
+            Expr::Deref(e, _) => write!(f, "*{e}"),
         }
     }
 }
@@ -378,3 +392,72 @@ impl Cfg {
     }
 }
 
+#[derive(Debug)]
+pub struct FrameElement {
+    pub offset: i64,
+    pub typ: Typ,
+    pub name: Name
+}
+
+#[derive(Debug)]
+pub struct Frame {
+    fully_understood: bool,
+    elements: Vec<FrameElement>,
+    next_name_idx: usize
+}
+
+impl Frame {
+    pub fn new(next_name_idx: usize) -> Frame {
+        Frame {
+            fully_understood: true,
+            elements: Vec::new(),
+            next_name_idx
+        }
+    }
+
+    pub fn is_fully_understood(&self) -> bool {
+        self.fully_understood
+    }
+
+    pub fn set_not_fully_understood(&mut self) {
+        self.fully_understood = false;
+    }
+
+    pub fn add(&mut self, offset: i64, typ: Typ) -> bool {
+        match self.elements.binary_search_by_key(&offset, |e| e.offset) {
+            Ok(idx) => {
+                if self.elements[idx].typ != typ {
+                    self.set_not_fully_understood();
+                }
+                self.fully_understood
+            },
+            Err(idx) => {
+                if idx != 0 {
+                    let prev = self.elements.get(idx - 1).unwrap();
+                    if prev.offset + prev.typ.width() > offset {
+                        self.set_not_fully_understood();
+                        return false
+                    }
+                }
+                if !self.elements.is_empty() && idx != self.elements.len() {
+                    let next = self.elements.get(idx).unwrap();
+                    if offset + typ.width() > next.offset {
+                        self.set_not_fully_understood();
+                        return false
+                    }
+                }
+
+                self.elements.insert(idx, FrameElement {
+                    name: Name(self.next_name_idx),
+                    offset, typ
+                });
+                self.next_name_idx += 1;
+                self.fully_understood
+            }
+        }
+    }
+
+    pub fn name_for(&self, offset: i64) -> Name {
+        self.elements[self.elements.binary_search_by_key(&offset, |e| e.offset).expect("frame element not found")].name
+    }
+}

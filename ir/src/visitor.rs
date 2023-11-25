@@ -94,7 +94,7 @@ impl Expr {
                 r.visit(f);
             }
             Expr::MonOp(_, e) => e.visit(f),
-            Expr::Deref(e) => e.visit(f),
+            Expr::Deref(e, _) => e.visit(f),
             Expr::Name(_) | Expr::ILit(_, _) | Expr::ULit(_, _) => {}
         }
     }
@@ -106,7 +106,7 @@ impl Expr {
                 r.visit_mut_post(f);
             }
             Expr::MonOp(_, e) => e.visit_mut_post(f),
-            Expr::Deref(e) => e.visit_mut_post(f),
+            Expr::Deref(e, _) => e.visit_mut_post(f),
             Expr::Name(_) | Expr::ILit(_, _) | Expr::ULit(_, _) => {}
         }
 
@@ -127,7 +127,7 @@ impl Binding {
         let mut names = UpdateSet::new();
         
         match self {
-            Binding::Deref(e) => names.add_all_reads(e.vars().into_iter()),
+            Binding::Deref(e, _) => names.add_all_reads(e.vars().into_iter()),
             Binding::Name(name) => names.write(*name)
         }
 
@@ -147,7 +147,7 @@ impl Instr {
     
     pub fn vars(&self) -> UpdateSet {
         let mut vars = UpdateSet::new();
-        self.visit_non_nested_top_exprs(&mut |e: &Expr| {
+        self.visit_top_exprs(&mut |e: &Expr| {
             vars.add_all_reads(e.vars().into_iter());
         });
 
@@ -158,10 +158,10 @@ impl Instr {
         vars
     }
 
-    pub fn visit_non_nested_top_exprs<F>(&self, f: &mut F) where F: FnMut(&Expr) {
+    pub fn visit_top_exprs<F>(&self, f: &mut F) where F: FnMut(&Expr) {
         self.visit(&mut |instr| match instr {
             Instr::Branch { cond: Some(cond), .. } => f(cond),
-            Instr::Store { src, dest: Binding::Deref(e), .. } => {
+            Instr::Store { src, dest: Binding::Deref(e, _), .. } => {
                 f(src);
                 f(e);
             }
@@ -177,7 +177,7 @@ impl Instr {
     pub fn visit_top_exprs_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Expr) {
         self.visit_mut(&mut |instr| match instr {
             Instr::Branch { cond: Some(cond), .. } => f(cond),
-            Instr::Store { src, dest: Binding::Deref(e), .. } => {
+            Instr::Store { src, dest: Binding::Deref(e, _), .. } => {
                 f(src);
                 f(e);
             }

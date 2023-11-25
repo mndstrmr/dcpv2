@@ -5,7 +5,12 @@ fn main() {
 
     for func in &bin.funcs {
         let mut func = x86::gen_ir_func(func).expect("Could not make initial translation");
+        
         ir::clean_dead_labels(&mut func.code);
+        ir::move_constants_right(&mut func.code);
+        let frame = ir::gen_frame(&func.code, x86::frame_ptr_name(), 100);
+        ir::apply_frame_names(x86::frame_ptr_name(), &mut func.code, &frame);
+      
         let (mut blocks, mut cfg) = ir::drain_code_to_cfg(&mut func.code);
 
         cfg.generate_backward_edges();
@@ -29,8 +34,7 @@ fn main() {
         ir::final_continue(&mut func.code);
         ir::while_gen(&mut func.code);
         
-        ir::move_constants_right(&mut func.code);
-
         ir::Instr::dump_block(&func.code);
+        // println!("{:?}", frame);
     }
 }

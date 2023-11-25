@@ -1,6 +1,6 @@
-use crate::{Instr, Frame, Expr, Name, BinOp, Binding};
+use crate::{Instr, Frame, Expr, BinOp, Binding, Abi};
 
-pub fn gen_frame(code: &[Instr], fp: Name, names_start: usize) -> Frame {
+pub fn gen_frame(code: &[Instr], abi: &Abi, names_start: usize) -> Frame {
     let mut frame = Frame::new(names_start);
 
     let mut add_el = |op, r: &Expr, typ| match (op, r) {
@@ -15,12 +15,12 @@ pub fn gen_frame(code: &[Instr], fp: Name, names_start: usize) -> Frame {
 
     for instr in code {
         instr.visit_top_exprs(&mut |e| {
-            e.visit(&mut |e| if let Expr::Deref(box Expr::BinOp(op, box Expr::Name(nm), r), typ) = e && *nm == fp {
+            e.visit(&mut |e| if let Expr::Deref(box Expr::BinOp(op, box Expr::Name(nm), r), typ) = e && *nm == abi.fp {
                 add_el(*op, r, *typ)
             })
         });
 
-        if let Instr::Store { dest: Binding::Deref(Expr::BinOp(op, box Expr::Name(nm), r), typ), .. } = instr && *nm == fp {
+        if let Instr::Store { dest: Binding::Deref(Expr::BinOp(op, box Expr::Name(nm), r), typ), .. } = instr && *nm == abi.fp {
             add_el(*op, r, *typ)
         }
     }
@@ -28,7 +28,7 @@ pub fn gen_frame(code: &[Instr], fp: Name, names_start: usize) -> Frame {
     frame
 }
 
-pub fn apply_frame_names(fp: Name, code: &mut [Instr], frame: &Frame) {
+pub fn apply_frame_names(abi: &Abi, code: &mut [Instr], frame: &Frame) {
     if !frame.is_fully_understood() {
         return
     }
@@ -41,12 +41,12 @@ pub fn apply_frame_names(fp: Name, code: &mut [Instr], frame: &Frame) {
 
     for instr in code {
         instr.visit_top_exprs_mut(&mut |e| {
-            e.visit_mut_post(&mut |e| if let Expr::Deref(box Expr::BinOp(op, box Expr::Name(nm), r), _) = e && *nm == fp {
+            e.visit_mut_post(&mut |e| if let Expr::Deref(box Expr::BinOp(op, box Expr::Name(nm), r), _) = e && *nm == abi.fp {
                 *e = Expr::Name(get_name(*op, r));
             })
         });
 
-        if let Instr::Store { dest: Binding::Deref(Expr::BinOp(op, box Expr::Name(nm), r), _), loc, src, typ } = instr && *nm == fp {
+        if let Instr::Store { dest: Binding::Deref(Expr::BinOp(op, box Expr::Name(nm), r), _), loc, src, typ } = instr && *nm == abi.fp {
             *instr = Instr::Store {
                 dest: Binding::Name(get_name(*op, r)),
                 loc: *loc, typ: *typ,

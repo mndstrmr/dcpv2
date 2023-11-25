@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bin::BinFunc;
 use capstone::{Capstone, arch::{self, BuildsCapstoneSyntax, BuildsCapstone, x86::X86OpMem}, InsnDetail, RegId};
 use ir::{Func, Name, Loc, Typ, Binding, Expr, Instr, BinOp, MonOp, Label};
@@ -34,6 +36,13 @@ const FLAGS: Name = Name(16);
 
 pub fn frame_ptr_name() -> Name {
     RBP
+}
+
+pub fn caller_read() -> HashSet<Name> {
+    let mut set = HashSet::new();
+    set.insert(RBP);
+    set.insert(RSP);
+    set
 }
 
 fn reg_to_name(reg: RegId) -> Option<Name> {

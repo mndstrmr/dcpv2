@@ -1,14 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{Cfg, Instr, Name, Binding, Expr, CfgBlock};
+use crate::{Cfg, Instr, Name, Binding, Expr, CfgBlock, Abi};
 
-fn might_read_before_write(cfg: &Cfg, blocks: &[CfgBlock], name: Name, node: usize, idx: usize, visited: &mut HashSet<usize>) -> bool {
+fn might_read_before_write(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock], name: Name, node: usize, idx: usize, visited: &mut HashSet<usize>) -> bool {
     if !visited.insert(node) {
         return false
     }
 
     for stmt in idx..blocks[node].code.len() {
-        let vars = blocks[node].code[stmt].vars();
+        let mut vars = blocks[node].code[stmt].vars();
+
+        if let Instr::Return { .. } = &blocks[node].code[stmt] {
+            vars.add_all_reads(abi.caller_read.iter().copied());
+        }
         
         if vars.reads_before_writes(name) {
             return true
@@ -18,7 +22,7 @@ fn might_read_before_write(cfg: &Cfg, blocks: &[CfgBlock], name: Name, node: usi
     }
 
     for outgoing in cfg.outgoing_for(node) {
-        if might_read_before_write(cfg, blocks, name, *outgoing, 0, visited) {
+        if might_read_before_write(abi, cfg, blocks, name, *outgoing, 0, visited) {
             return true
         }
     }
@@ -26,7 +30,7 @@ fn might_read_before_write(cfg: &Cfg, blocks: &[CfgBlock], name: Name, node: usi
     false
 }
 
-fn maybe_inline_single_use_pair(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize, src: usize, dst: usize) -> bool {
+fn maybe_inline_single_use_pair(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize, src: usize, dst: usize) -> bool {
     assert!(src < dst);
 
     let Instr::Store { dest: Binding::Name(name), src: val, .. } = &blocks[node].code[src] else {
@@ -65,7 +69,7 @@ fn maybe_inline_single_use_pair(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize,
     
     if !dst_vars.writes(name) {
         let mut visited = HashSet::new();
-        if might_read_before_write(cfg, blocks, name, node, dst + 1, &mut visited) {
+        if might_read_before_write(abi, cfg, blocks, name, node, dst + 1, &mut visited) {
             return false
         }
     }
@@ -89,7 +93,7 @@ fn maybe_inline_single_use_pair(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize,
     true
 }
 
-fn inline_single_use_pairs_in(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
+fn inline_single_use_pairs_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
     let mut last_write_locations = HashMap::<Name, usize>::new();
     let mut i = 0;
 
@@ -97,7 +101,7 @@ fn inline_single_use_pairs_in(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
         let vars = blocks[node].code[i].vars();
         for var in vars.read_names() {
             if let Some(location) = last_write_locations.get(var) {
-                if maybe_inline_single_use_pair(cfg, blocks, node, *location, i) {
+                if maybe_inline_single_use_pair(abi, cfg, blocks, node, *location, i) {
                     // Safe to leave the write in the map since it was proved that the name is never read
                     continue 'outer
                 }
@@ -112,8 +116,8 @@ fn inline_single_use_pairs_in(cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
     }
 }
 
-pub fn inline_single_use_pairs(cfg: &Cfg, blocks: &mut [CfgBlock]) {
+pub fn inline_single_use_pairs(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     for i in 0..blocks.len() {
-        inline_single_use_pairs_in(cfg, blocks, i)
+        inline_single_use_pairs_in(abi, cfg, blocks, i)
     }
 }

@@ -461,3 +461,8 @@ impl Frame {
         self.elements[self.elements.binary_search_by_key(&offset, |e| e.offset).expect("frame element not found")].name
     }
 }
+
+pub struct Abi {
+    pub caller_read: HashSet<Name>,
+    pub fp: Name
+}

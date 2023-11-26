@@ -163,12 +163,17 @@ impl Instr {
     
     pub fn vars(&self) -> UpdateSet {
         let mut vars = UpdateSet::new();
-        self.visit_top_exprs(&mut |e: &Expr| {
-            vars.extend(e.vars());
-        });
 
-        if let Instr::Store { dest, .. } = self {
-            vars.extend(dest.vars());
+        if let Instr::Store { dest, src, .. } = self {
+            vars.extend(src.vars());
+            match dest {
+                Binding::Deref(e, _) => vars.extend(e.vars()),
+                Binding::Name(nm) => vars.write(*nm),
+            }
+        } else {
+            self.visit_top_exprs(&mut |e: &Expr| {
+                vars.extend(e.vars());
+            });
         }
 
         vars

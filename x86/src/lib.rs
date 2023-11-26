@@ -167,8 +167,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
         code: vec![]
     };
 
-    let cs = arch::BuildsCapstone::mode(Capstone::new()
-        .x86(), arch::x86::ArchMode::Mode64)
+    let cs = arch::BuildsCapstone::mode(Capstone::new().x86(), arch::x86::ArchMode::Mode64)
         .syntax(arch::x86::ArchSyntax::Att)
         .detail(true)
         .build()?;

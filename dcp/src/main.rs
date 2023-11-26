@@ -1,22 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ir::{write_code, CodeFormatConfig};
 
 struct Args {
-    path: String
+    path: String,
+    filter: HashSet<String>
 }
 
-fn print_help_exit() {
+fn print_help_exit() -> ! {
     eprintln!("Usage: dcp <path> [options]");
     eprintln!("Options:");
     eprintln!("       -h, --help    Display this help message");
+    eprintln!("       -f <name>     Decompile only the given function(s)");
     std::process::exit(0);
 }
 
 fn parse_args() -> Args {
     let mut path = None;
+    let mut filter = HashSet::new();
 
-    for arg in std::env::args().skip(1) {
+    let mut iter = std::env::args().skip(1);
+    while let Some(arg) = iter.next() {
         if arg.starts_with("--") {
             match &arg[2..] {
                 "help" => print_help_exit(),
@@ -28,6 +32,13 @@ fn parse_args() -> Args {
         } else if arg.starts_with('-') {
             match &arg[1..] {
                 "h" => print_help_exit(),
+                "f" => {
+                    let Some(name) = iter.next() else {
+                        eprintln!("Expected function name. Use `dcp -h` for help.");
+                        std::process::exit(1);
+                    };
+                    filter.insert(name);
+                }
                 _ => {
                     eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
                     std::process::exit(1);
@@ -43,7 +54,8 @@ fn parse_args() -> Args {
     }
 
     Args {
-        path: path.unwrap()
+        path: path.unwrap(),
+        filter
     }
 }
 
@@ -66,7 +78,8 @@ fn main() {
         for name in &[
             "_start", "deregister_tm_clones", "register_tm_clones",
             "frame_dummy", "__do_global_dtors_aux", "__libc_csu_init",
-            "__libc_csu_fini"] {
+            "__libc_csu_fini"
+        ] {
             if func.name.as_deref() == Some(name) {
                 continue 'outer
             }
@@ -104,11 +117,23 @@ fn main() {
     }
 
     for (func, (blocks, cfg, frame)) in funcs.iter_mut().zip(func_graphs.iter_mut()) {
-        ir::remove_dead_writes(&x86_abi, &cfg, blocks);
+        if !args.filter.is_empty() {
+            let Some(name) = &func.name else {
+                continue
+            };
+
+            if !args.filter.contains(name) {
+                continue
+            }
+        }
+
         ir::inline_single_use_pairs(&x86_abi, &cfg, blocks);
+        ir::remove_dead_writes(&x86_abi, &cfg, blocks);
         for block in blocks.iter_mut() {
+            // ir::Instr::dump_block(&block.code);
             ir::reduce_cmp(&mut block.code);
             ir::reduce_binop_assoc(&mut block.code);
+            ir::reduce_binop_constants(&mut block.code);
             ir::reduce_binop_identities(&mut block.code);
             ir::clean_self_writes(&mut block.code);
         }

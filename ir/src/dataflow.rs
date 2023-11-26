@@ -116,8 +116,35 @@ fn inline_single_use_pairs_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], nod
             }
         }
 
-        if let Instr::Store { dest: Binding::Name(name), .. } = &blocks[node].code[i] {
-            last_write_locations.insert(*name, i);
+        if let Instr::Store { dest: Binding::Name(name), src, .. } = &blocks[node].code[i] {
+            let name = *name;
+
+            // Special case where the assignment is just name1 = name2
+            if let Expr::Name(old_name) = src {
+                let mut j = i + 1;
+                while j < blocks[node].code.len() {
+                    if blocks[node].code[j].vars().writes(name) {
+                        break;
+                    }
+                    j += 1;
+                }
+
+                if j != blocks[node].code.len() || cfg.outgoing_for(node).is_empty() {
+                    let old_name = *old_name;
+                    blocks[node].code.remove(i);
+                    j -= 1;
+                    for k in i..=j.min(blocks[node].code.len() - 1) {
+                        blocks[node].code[k].visit_top_exprs_mut(&mut |e| {
+                            e.visit_mut_post(&mut |e| if let Expr::Name(nm) = e && *nm == name {
+                                *nm = old_name;
+                            });
+                        });
+                    }
+                    continue 'outer
+                }
+            }
+
+            last_write_locations.insert(name, i);
         }
 
         i += 1;

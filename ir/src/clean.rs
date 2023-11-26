@@ -119,6 +119,9 @@ pub fn reduce_binop_assoc(code: &mut Vec<Instr>) {
                     (BinOp::Sub, BinOp::Add) if x2 > x1 => {
                         *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x2 - *x1, *t)));
                     }
+                    (BinOp::Add, BinOp::Add) => {
+                        *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
+                    }
                     _ => {}
                 }
             });
@@ -134,6 +137,24 @@ pub fn reduce_binop_identities(code: &mut Vec<Instr>) {
                     (BinOp::Add, 0) => *e = l.take(),
                     (BinOp::Sub, 0) => *e = l.take(),
                     (BinOp::Mul, 1) => *e = l.take(),
+                    _ => {}
+                }
+            });
+        });
+    }
+}
+
+pub fn reduce_binop_constants(code: &mut Vec<Instr>) {
+    for instr in code {
+        instr.visit_top_exprs_mut(&mut |expr| {
+            expr.visit_mut_post(&mut |e| if let Expr::BinOp(op, box Expr::Lit(x1, t), box Expr::Lit(x2, _)) = e {
+                match op {
+                    BinOp::Add => *e = Expr::Lit(*x1 + *x2, *t),
+                    BinOp::Sub => *e = Expr::Lit(*x1 - *x2, *t),
+                    BinOp::Mul => *e = Expr::Lit(*x1 * *x2, *t),
+                    BinOp::Lsl => *e = Expr::Lit(((*x1 as u64) << *x2 as u64) as i64, *t),
+                    BinOp::Lsr => *e = Expr::Lit((*x1 as u64 >> *x2 as u64) as i64, *t),
+                    BinOp::Asr => *e = Expr::Lit(*x1 >> *x2, *t),
                     _ => {}
                 }
             });

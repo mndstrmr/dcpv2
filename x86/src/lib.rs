@@ -45,6 +45,12 @@ pub fn caller_read() -> HashSet<Name> {
     set
 }
 
+pub fn func_args() -> Vec<Name> {
+    vec![
+        RDI, RSI, RDX, RCX, R8, R9
+    ]
+}
+
 fn reg_to_name(reg: RegId) -> Option<Name> {
     match reg.0 as u32 {
         arch::x86::X86Reg::X86_REG_SP | arch::x86::X86Reg::X86_REG_ESP | arch::x86::X86Reg::X86_REG_RSP => Some(RSP),
@@ -120,8 +126,10 @@ fn op_typ(op: &arch::x86::X86Operand) -> Typ {
     }
 }
 
-pub fn gen_ir_func(raw: &BinFunc) -> Result<Func, X86Error> {
+pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
     let mut func = Func {
+        short_name,
+        addr: raw.addr,
         args: vec![],
         ret: None,
         name: raw.name.clone(),
@@ -169,6 +177,26 @@ pub fn gen_ir_func(raw: &BinFunc) -> Result<Func, X86Error> {
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
                     src: Expr::BinOp(BinOp::Sub, Box::new(Expr::Name(RSP)), Box::new(Expr::ULit(8, Typ::N64)))
+                });
+            }
+            arch::x86::X86Insn::X86_INS_LEAVE => {
+                func.code.push(Instr::Store {
+                    loc, typ: Typ::N64,
+                    dest: Binding::Name(RSP),
+                    src: Expr::Name(RBP)
+                });
+
+                func.code.push(Instr::Store {
+                    loc,
+                    typ: Typ::N64,
+                    dest: Binding::Name(RSP),
+                    src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::ULit(8, Typ::N64)))
+                });
+
+                func.code.push(Instr::Store {
+                    loc, typ: Typ::N64,
+                    dest: Binding::Name(RBP),
+                    src: Expr::Deref(Box::new(Expr::Name(RSP)), Typ::N64)
                 });
             }
             arch::x86::X86Insn::X86_INS_POP => {
@@ -244,6 +272,13 @@ pub fn gen_ir_func(raw: &BinFunc) -> Result<Func, X86Error> {
                     loc,
                     label: op_label(op(0)),
                     cond: None
+                });
+            }
+            arch::x86::X86Insn::X86_INS_CALL => {
+                func.code.push(Instr::Store {
+                    loc, typ: Typ::N64,
+                    dest: Binding::Name(RAX),
+                    src: Expr::Call(Box::new(op_expr(op(0), Typ::N64)), vec![])
                 });
             }
             _ => panic!("Instruction '{}' not translated", i)

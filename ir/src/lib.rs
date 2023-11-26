@@ -226,7 +226,8 @@ pub enum Expr {
     ILit(i64, Typ),
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     MonOp(MonOp, Box<Expr>),
-    Deref(Box<Expr>, Typ)
+    Deref(Box<Expr>, Typ),
+    Call(Box<Expr>, Vec<Expr>),
 }
 
 impl Display for Expr {
@@ -238,12 +239,24 @@ impl Display for Expr {
             Expr::BinOp(op, l, r) => write!(f, "({l} {op} {r})"),
             Expr::MonOp(op, r) => write!(f, "{op}{r}"),
             Expr::Deref(e, _) => write!(f, "*{e}"),
+            Expr::Call(func, args) => {
+                write!(f, "{func}(")?;
+                for (a, arg) in args.iter().enumerate() {
+                    if a != 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            },
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Func {
+    pub addr: u64,
+    pub short_name: Name,
     pub name: Option<String>,
     pub args: Vec<FuncArg>,
     pub ret: Option<Typ>,
@@ -464,5 +477,6 @@ impl Frame {
 
 pub struct Abi {
     pub caller_read: HashSet<Name>,
-    pub fp: Name
+    pub fp: Name,
+    pub func_args: Vec<Name>
 }

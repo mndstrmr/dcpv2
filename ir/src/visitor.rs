@@ -82,6 +82,10 @@ impl UpdateSet {
     pub fn read_names<'a>(&'a self) -> Keys<'a, Name, usize> {
         self.reads.keys()
     }
+
+    pub fn write_name(&self) -> Option<Name> {
+        self.writes
+    }
 }
 
 impl Expr {
@@ -95,6 +99,12 @@ impl Expr {
             }
             Expr::MonOp(_, e) => e.visit(f),
             Expr::Deref(e, _) => e.visit(f),
+            Expr::Call(func, args) => {
+                func.visit(f);
+                for arg in args {
+                    arg.visit(f);
+                }
+            }
             Expr::Name(_) | Expr::ILit(_, _) | Expr::ULit(_, _) => {}
         }
     }
@@ -107,6 +117,12 @@ impl Expr {
             }
             Expr::MonOp(_, e) => e.visit_mut_post(f),
             Expr::Deref(e, _) => e.visit_mut_post(f),
+            Expr::Call(func, args) => {
+                func.visit_mut_post(f);
+                for arg in args {
+                    arg.visit_mut_post(f);
+                }
+            }
             Expr::Name(_) | Expr::ILit(_, _) | Expr::ULit(_, _) => {}
         }
 

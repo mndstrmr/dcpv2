@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{Cfg, Instr, Name, Binding, Expr, CfgBlock, Abi};
+use crate::{Cfg, Instr, Name, Binding, Expr, CfgBlock, Abi, FuncArg, Typ, Func};
 
 fn might_read_before_write(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock], name: Name, node: usize, idx: usize, visited: &mut HashSet<usize>) -> bool {
     if !visited.insert(node) {
@@ -102,7 +102,8 @@ fn inline_single_use_pairs_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], nod
         for var in vars.read_names() {
             if let Some(location) = last_write_locations.get(var) {
                 if maybe_inline_single_use_pair(abi, cfg, blocks, node, *location, i) {
-                    // Safe to leave the write in the map since it was proved that the name is never read
+                    last_write_locations.clear();
+                    i = 0;
                     continue 'outer
                 }
             }
@@ -119,5 +120,51 @@ fn inline_single_use_pairs_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], nod
 pub fn inline_single_use_pairs(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     for i in 0..blocks.len() {
         inline_single_use_pairs_in(abi, cfg, blocks, i)
+    }
+}
+
+pub fn infer_func_args(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock]) -> Vec<FuncArg> {
+    let mut args = Vec::new();
+
+    for (a, arg) in abi.func_args.iter().enumerate() {
+        let mut visited = HashSet::new();
+        if might_read_before_write(abi, cfg, blocks, *arg, 0, 0, &mut visited) {
+            for i in args.len()..=a {
+                args.push(FuncArg {
+                    name: abi.func_args[i],
+                    typ: Typ::N64 // Not sure how best to obtain this
+                });
+            }
+        }
+    }
+
+    args
+}
+
+pub fn insert_args(blocks: &mut [CfgBlock], funcs: &HashMap<u64, &Func>) {
+    for block in blocks {
+        Instr::visit_mut_all(&mut block.code, &mut |instr| {
+            instr.visit_top_exprs_mut(&mut |e| {
+                e.visit_mut_post(&mut |expr| if let Expr::Call(box Expr::ILit(addr, _), args) = expr && args.is_empty() {
+                    if let Some(func) = funcs.get(&(*addr as u64)) {
+                        args.extend(func.args.iter().map(|x| Expr::Name(x.name)));
+                    }
+                });
+            });
+        });
+    }
+}
+
+pub fn replace_names(blocks: &mut [CfgBlock], funcs: &HashMap<u64, &Func>) {
+    for block in blocks {
+        Instr::visit_mut_all(&mut block.code, &mut |instr| {
+            instr.visit_top_exprs_mut(&mut |e| {
+                e.visit_mut_post(&mut |expr| if let Expr::ILit(addr, _) = expr {
+                    if let Some(func) = funcs.get(&(*addr as u64)) {
+                        *expr = Expr::Name(func.short_name);
+                    }
+                });
+            });
+        });
     }
 }

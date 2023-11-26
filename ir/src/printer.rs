@@ -116,6 +116,21 @@ fn write_expr<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeFormatCon
 }
 
 fn write_store<W: std::fmt::Write>(f: &mut W, typ: Typ, dest: &Binding, src: &Expr, config: &CodeFormatConfig) -> std::fmt::Result {
+    match (dest, src) {
+        (Binding::Name(nm1), Expr::BinOp(op, box Expr::Name(nm2), r)) if nm1 == nm2 => {
+            if let Some(name) = config.name_map.get(nm1) {
+                write!(f, "{name}")?;
+            } else {
+                write!(f, "r{}", nm1.0)?;
+            }
+
+            write!(f, " {op}= ")?;
+            write_expr(f, r, config)?;
+            return Ok(())
+        }
+        _ => {}
+    }
+
     match dest {
         Binding::Name(name) => {
             if config.write_types {

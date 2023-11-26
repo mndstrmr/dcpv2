@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use bin::BinFunc;
 use capstone::{Capstone, arch::{self, BuildsCapstoneSyntax, BuildsCapstone, x86::X86OpMem}, InsnDetail, RegId};
@@ -49,6 +49,19 @@ pub fn func_args() -> Vec<Name> {
     vec![
         RDI, RSI, RDX, RCX, R8, R9
     ]
+}
+
+pub fn name_map() -> HashMap<Name, String> {
+    let mut map = HashMap::new();
+    map.insert(RSP, "sp".to_string());
+    map.insert(RBP, "fp".to_string());
+    map.insert(RDI, "rdi".to_string());
+    map.insert(RSI, "rsi".to_string());
+    map.insert(RDX, "rdx".to_string());
+    map.insert(RCX, "rcx".to_string());
+    map.insert(R8, "r8".to_string());
+    map.insert(R9, "r9".to_string());
+    map
 }
 
 fn reg_to_name(reg: RegId) -> Option<Name> {

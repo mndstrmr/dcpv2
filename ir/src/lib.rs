@@ -432,6 +432,10 @@ impl Frame {
         }
     }
 
+    pub fn locals(&self) -> &[FrameElement] {
+        &self.elements
+    }
+
     pub fn is_fully_understood(&self) -> bool {
         self.fully_understood
     }

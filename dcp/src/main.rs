@@ -30,12 +30,17 @@ fn main() {
         func.args = ir::infer_func_args(&x86_abi, &cfg, &blocks);
 
         funcs.push(func);
-        func_graphs.push((blocks, cfg));
+        func_graphs.push((blocks, cfg, frame));
     }
 
     let mut func_map = HashMap::new();
+    let mut func_name_map = HashMap::new();
     for func in &funcs {
         func_map.insert(func.addr, func);
+
+        if let Some(name) = &func.name {
+            func_name_map.insert(func.short_name, name.clone());
+        }
     }
     
     for i in 0..funcs.len() {
@@ -43,7 +48,7 @@ fn main() {
         ir::replace_names(&mut func_graphs[i].0, &func_map);
     }
 
-    for (func, (blocks, cfg)) in funcs.iter_mut().zip(func_graphs.iter_mut()) {
+    for (func, (blocks, cfg, frame)) in funcs.iter_mut().zip(func_graphs.iter_mut()) {
         ir::remove_dead_writes(&x86_abi, &cfg, blocks);
         ir::inline_single_use_pairs(&x86_abi, &cfg, blocks);
         for block in blocks.iter_mut() {
@@ -68,17 +73,36 @@ fn main() {
         ir::final_continue(&mut func.code);
         ir::while_gen(&mut func.code);
         
-        println!("\nfunc {} (r{}) {:?}:", func.name.as_deref().unwrap_or("??"), func.short_name.0, func.args.iter().map(|x| x.name.0).collect::<Vec<_>>());
-        // ir::Instr::dump_block(&func.code);
-        // println!("{:?}", frame);
+        let mut name_map = func_name_map.clone();
+        name_map.extend(x86::name_map());
+        for local in frame.locals() {
+            if local.offset < 0 {
+                name_map.insert(local.name, format!("local{:x}", -local.offset));
+            }
+        }
+
+        if let Some(name) = &func.name {
+            print!("func {name}(");
+        } else {
+            print!("func @{:x}(", func.addr);
+        }
+        for (a, arg) in func.args.iter().enumerate() {
+            if a != 0 {
+                print!(", ");
+            }
+            if let Some(name) = name_map.get(&arg.name) {
+                print!("{name}: ");
+            } else {
+                print!("r{}: ", arg.name.0);
+            }
+            print!("{}", arg.typ);
+        }
+        println!(")");
+
         let mut string = String::new();
         write_code(&mut string, &func.code, &CodeFormatConfig {
-            indent: "    ".to_string(),
-            indent_lab: false,
-            lit_types: false, mem_types: false, return_types: false, write_types: false,
-            loc: true,
-            loc_gap: 4,
-            name_map: HashMap::new()
+            name_map,
+            ..Default::default()
         }).expect("Could not write");
         println!("{}", string);
     }

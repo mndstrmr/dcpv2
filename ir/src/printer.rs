@@ -14,6 +14,19 @@ pub struct CodeFormatConfig {
     pub indent_lab: bool
 }
 
+impl Default for CodeFormatConfig {
+    fn default() -> Self {
+        CodeFormatConfig {
+            indent: "    ".to_string(),
+            indent_lab: false,
+            lit_types: false, mem_types: false, return_types: false, write_types: false,
+            loc: true,
+            loc_gap: 4,
+            name_map: HashMap::new()
+        }
+    }
+}
+
 fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeFormatConfig, prec: usize) -> std::fmt::Result {
     match expr {
         Expr::Name(name) => {

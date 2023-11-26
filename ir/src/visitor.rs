@@ -1,4 +1,4 @@
-use std::collections::{HashSet, HashMap, hash_map::Keys};
+use std::collections::{HashMap, hash_map::Keys};
 
 use crate::{Instr, Loc, Label, Expr, Name, Binding};
 
@@ -129,10 +129,10 @@ impl Expr {
         f(self);
     }
 
-    pub fn vars(&self) -> HashSet<Name> {
-        let mut names = HashSet::new();
+    pub fn vars(&self) -> UpdateSet {
+        let mut names = UpdateSet::new();
         self.visit(&mut |e| if let Expr::Name(name) = e {
-            names.insert(*name);
+            names.add_read(*name);
         });
         names
     }
@@ -143,7 +143,7 @@ impl Binding {
         let mut names = UpdateSet::new();
         
         match self {
-            Binding::Deref(e, _) => names.add_all_reads(e.vars().into_iter()),
+            Binding::Deref(e, _) => names.extend(e.vars()),
             Binding::Name(name) => names.write(*name)
         }
 
@@ -164,7 +164,7 @@ impl Instr {
     pub fn vars(&self) -> UpdateSet {
         let mut vars = UpdateSet::new();
         self.visit_top_exprs(&mut |e: &Expr| {
-            vars.add_all_reads(e.vars().into_iter());
+            vars.extend(e.vars());
         });
 
         if let Instr::Store { dest, .. } = self {

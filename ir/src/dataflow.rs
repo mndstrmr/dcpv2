@@ -54,7 +54,7 @@ fn maybe_inline_single_use_pair(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], n
             return false
         }
 
-        for dep in &deps {
+        for dep in deps.read_names() {
             if vars.writes(*dep) {
                 // Dependency was overwritten
                 return false

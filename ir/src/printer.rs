@@ -1,0 +1,241 @@
+use std::collections::HashMap;
+
+use crate::{Instr, Name, Expr, Binding, BinOp};
+
+pub struct CodeFormatConfig {
+    pub name_map: HashMap<Name, String>,
+    pub mem_types: bool,
+    pub lit_types: bool,
+    pub write_types: bool,
+    pub return_types: bool,
+    pub indent: String,
+    pub loc: bool,
+    pub loc_gap: usize,
+    pub indent_lab: bool
+}
+
+fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeFormatConfig, prec: usize) -> std::fmt::Result {
+    match expr {
+        Expr::Name(name) => {
+            if let Some(name) = config.name_map.get(name) {
+                write!(f, "{name}")?;
+            } else {
+                write!(f, "r{}", name.0)?;
+            }
+        }
+        Expr::Deref(expr, typ) => {
+            if prec > 10 {
+                write!(f, "(")?;
+            }
+            write!(f, "*")?;
+            if config.mem_types {
+                write!(f, "({typ})")?;
+            }
+            write_expr_at_prec(f, expr, config, 10)?;
+            if prec > 10 {
+                write!(f, ")")?;
+            }
+        }
+        Expr::Call(func, args) => {
+            if prec > 11 {
+                write!(f, "(")?;
+            }
+            write_expr_at_prec(f, func, config, 11)?;
+            write!(f, "(")?;
+            for (a, arg) in args.iter().enumerate() {
+                if a != 0 {
+                    write!(f, ", ")?;
+                }
+                write_expr_at_prec(f, arg, config, 0)?;
+            }
+            write!(f, ")")?;
+
+            if prec > 11 {
+                write!(f, ")")?;
+            }
+        }
+        Expr::Lit(n, typ) => {
+            if config.lit_types {
+                write!(f, "({typ}).")?;
+            }
+            write!(f, "{n}")?;
+        }
+        Expr::BinOp(op, l, r) => {
+            let new_prec = match op {
+                BinOp::Add => 5,
+                BinOp::Sub => 5,
+                BinOp::Mul => 6,
+                BinOp::Div => 7,
+                BinOp::And => 2,
+                BinOp::Or => 1,
+                BinOp::Cmp => 3,
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Ge | BinOp::Gt => 3,
+                BinOp::Asr | BinOp::Lsl | BinOp::Lsr => 8,
+            };
+
+            if prec > new_prec {
+                write!(f, "(")?;
+            }
+            write_expr_at_prec(f, l, config, new_prec)?;
+            write!(f, " {op} ")?;
+            write_expr_at_prec(f, r, config, new_prec)?;
+            if prec > new_prec {
+                write!(f, ")")?;
+            }
+        }
+        Expr::MonOp(op, expr) => {
+            if prec > 10 {
+                write!(f, "(")?;
+            }
+            write!(f, "{op}")?;
+            write_expr_at_prec(f, expr, config, 10)?;
+            if prec > 10 {
+                write!(f, ")")?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn write_expr<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeFormatConfig) -> std::fmt::Result {
+    write_expr_at_prec(f, expr, config, 0)
+}
+
+fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &CodeFormatConfig, depth: usize) -> std::fmt::Result {
+    let indent = |f: &mut W| -> std::fmt::Result {
+        for _ in 0..depth {
+            write!(f, "{}", config.indent)?;
+        };
+        Ok(())
+    };
+
+    for instr in code {
+        let write_loc = |f: &mut W| -> std::fmt::Result {
+            if config.loc {
+                write!(f, "0x{:x}", instr.loc().addr)?;
+
+                for _ in 0..config.loc_gap {
+                    write!(f, " ")?;
+                }
+            }
+
+            Ok(())
+        };
+
+        match instr {
+            Instr::Break(_) => {
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "break;")?
+            }
+            Instr::Continue(_) => {
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "continue;")?;
+            }
+            Instr::Label { label, .. } => {
+                if config.indent_lab {
+                    indent(f)?;
+                }
+                writeln!(f, "L{}:", label.0)?;
+            }
+            Instr::Store { typ, dest, src, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                
+                match dest {
+                    Binding::Name(name) => {
+                        if config.write_types {
+                            write!(f, "({typ}).")?;
+                        }
+
+                        if let Some(name) = config.name_map.get(name) {
+                            write!(f, "{name}")?;
+                        } else {
+                            write!(f, "r{}", name.0)?;
+                        }
+                    }
+                    Binding::Deref(expr, _) => {
+                        write!(f, "*")?;
+                        if config.write_types || config.mem_types {
+                            write!(f, "({typ})")?;
+                        }
+
+                        write_expr_at_prec(f, expr, config, 10)?;
+                    }
+                }
+
+                write!(f, " = ")?;
+                write_expr(f, src, config)?;
+                writeln!(f, ";")?;
+            }
+            Instr::Return { value, typ, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                if config.return_types {
+                    write!(f, "return.({typ}) ")?;
+                } else {
+                    write!(f, "return ")?;
+                }
+                write_expr(f, value, config)?;
+                writeln!(f, ";")?;
+            }
+            Instr::Branch { label, cond: None, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "goto L{};", label.0)?;
+            }
+            Instr::Branch { label, cond: Some(cond), .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                write!(f, "if ")?;
+                write_expr(f, cond, config)?;
+                writeln!(f, " goto L{};", label.0)?;
+            }
+            Instr::If { cond, true_case, false_case, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                write!(f, "if ")?;
+                write_expr(f, cond, config)?;
+                writeln!(f, " {{")?;
+                write_code_at_depth(f, &true_case, config, depth + 1)?;
+                if !false_case.is_empty() {
+                    write_loc(f)?;
+                    indent(f)?;
+                    writeln!(f, "}} else {{")?;
+                    write_code_at_depth(f, &false_case, config, depth + 1)?;
+                }
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "}}")?;
+            }
+            Instr::Loop { body, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "loop {{")?;
+                write_code_at_depth(f, &body, config, depth + 1)?;
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "}}")?;
+            }
+            Instr::While { cond, body, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                write!(f, "while ")?;
+                write_expr(f, cond, config)?;
+                writeln!(f, " {{")?;
+                write_code_at_depth(f, &body, config, depth + 1)?;
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "}}")?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn write_code<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &CodeFormatConfig) -> std::fmt::Result {
+    write_code_at_depth(f, code, config, 0)
+}

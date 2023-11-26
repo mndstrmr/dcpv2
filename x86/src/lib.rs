@@ -57,10 +57,10 @@ fn reg_to_name(reg: RegId) -> Option<Name> {
         arch::x86::X86Reg::X86_REG_BP | arch::x86::X86Reg::X86_REG_EBP | arch::x86::X86Reg::X86_REG_RBP => Some(RBP),
         arch::x86::X86Reg::X86_REG_DI | arch::x86::X86Reg::X86_REG_EDI | arch::x86::X86Reg::X86_REG_RDI => Some(RDI),
         arch::x86::X86Reg::X86_REG_SI | arch::x86::X86Reg::X86_REG_ESI | arch::x86::X86Reg::X86_REG_RSI => Some(RSI),
-        arch::x86::X86Reg::X86_REG_AX | arch::x86::X86Reg::X86_REG_EAX | arch::x86::X86Reg::X86_REG_RAX => Some(RAX),
-        arch::x86::X86Reg::X86_REG_CX | arch::x86::X86Reg::X86_REG_ECX | arch::x86::X86Reg::X86_REG_RCX => Some(RCX),
-        arch::x86::X86Reg::X86_REG_BX | arch::x86::X86Reg::X86_REG_EBX | arch::x86::X86Reg::X86_REG_RBX => Some(RBX),
-        arch::x86::X86Reg::X86_REG_DX | arch::x86::X86Reg::X86_REG_EDX | arch::x86::X86Reg::X86_REG_RDX => Some(RDX),
+        arch::x86::X86Reg::X86_REG_AL | arch::x86::X86Reg::X86_REG_AX | arch::x86::X86Reg::X86_REG_EAX | arch::x86::X86Reg::X86_REG_RAX => Some(RAX),
+        arch::x86::X86Reg::X86_REG_CL | arch::x86::X86Reg::X86_REG_CX | arch::x86::X86Reg::X86_REG_ECX | arch::x86::X86Reg::X86_REG_RCX => Some(RCX),
+        arch::x86::X86Reg::X86_REG_BL | arch::x86::X86Reg::X86_REG_BX | arch::x86::X86Reg::X86_REG_EBX | arch::x86::X86Reg::X86_REG_RBX => Some(RBX),
+        arch::x86::X86Reg::X86_REG_DL | arch::x86::X86Reg::X86_REG_DX | arch::x86::X86Reg::X86_REG_EDX | arch::x86::X86Reg::X86_REG_RDX => Some(RDX),
         arch::x86::X86Reg::X86_REG_R8W | arch::x86::X86Reg::X86_REG_R8D | arch::x86::X86Reg::X86_REG_R8 => Some(R8),
         arch::x86::X86Reg::X86_REG_R9W | arch::x86::X86Reg::X86_REG_R9D | arch::x86::X86Reg::X86_REG_R9 => Some(R9),
         arch::x86::X86Reg::X86_REG_R10W | arch::x86::X86Reg::X86_REG_R10D | arch::x86::X86Reg::X86_REG_R10 => Some(R10),
@@ -217,12 +217,11 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
             arch::x86::X86Insn::X86_INS_RET => {
                 func.code.push(Instr::Return { loc, typ: Typ::N64, value: Expr::Name(RAX) });
             }
-            arch::x86::X86Insn::X86_INS_MOV => {
-                let typ = op_typ(op(0));
+            arch::x86::X86Insn::X86_INS_MOV | arch::x86::X86Insn::X86_INS_MOVZX => {
                 func.code.push(Instr::Store {
-                    loc, typ,
-                    dest: op_binding(op(1), typ),
-                    src: op_expr(op(0), typ)
+                    loc, typ: op_typ(op(1)),
+                    dest: op_binding(op(1), op_typ(op(1))),
+                    src: op_expr(op(0), op_typ(op(0)))
                 });
             }
             arch::x86::X86Insn::X86_INS_ADD => {
@@ -231,6 +230,14 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     loc, typ,
                     dest: op_binding(op(1), typ),
                     src: Expr::BinOp(BinOp::Add, Box::new(op_expr(op(1), typ)), Box::new(op_expr(op(0), typ)))
+                });
+            }
+            arch::x86::X86Insn::X86_INS_IMUL => {
+                let typ = op_typ(op(0));
+                func.code.push(Instr::Store {
+                    loc, typ,
+                    dest: op_binding(op(1), typ),
+                    src: Expr::BinOp(BinOp::Mul, Box::new(op_expr(op(1), typ)), Box::new(op_expr(op(0), typ)))
                 });
             }
             arch::x86::X86Insn::X86_INS_SUB => {
@@ -281,6 +288,14 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     src: Expr::Call(Box::new(op_expr(op(0), Typ::N64)), vec![])
                 });
             }
+            arch::x86::X86Insn::X86_INS_SETG => {
+                func.code.push(Instr::Store {
+                    loc, typ: Typ::N8,
+                    dest: op_binding(op(0), Typ::N8),
+                    src: Expr::MonOp(MonOp::CmpGt, Box::new(Expr::Name(FLAGS)))
+                });
+            }
+            arch::x86::X86Insn::X86_INS_NOP => {}
             _ => panic!("Instruction '{}' not translated", i)
         }
     }

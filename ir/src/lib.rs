@@ -26,6 +26,9 @@ pub use frame::*;
 mod calls;
 pub use calls::*;
 
+mod printer;
+pub use printer::*;
+
 pub mod visitor;
 
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};

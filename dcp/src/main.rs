@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use ir::{write_code, CodeFormatConfig};
+
 
 fn main() {
     let x86_abi = ir::Abi {
@@ -8,7 +10,7 @@ fn main() {
         func_args: x86::func_args()
     };
 
-    let bin = elf::read("samples/calls.elf").expect("Could not open ELF");
+    let bin = elf::read("samples/prec.elf").expect("Could not open ELF");
     let bin = bin.functions_from_meta();
 
     let mut funcs = Vec::new();
@@ -66,7 +68,17 @@ fn main() {
         ir::while_gen(&mut func.code);
         
         println!("\nfunc {} (r{}) {:?}:", func.name.as_deref().unwrap_or("??"), func.short_name.0, func.args.iter().map(|x| x.name.0).collect::<Vec<_>>());
-        ir::Instr::dump_block(&func.code);
+        // ir::Instr::dump_block(&func.code);
         // println!("{:?}", frame);
+        let mut string = String::new();
+        write_code(&mut string, &func.code, &CodeFormatConfig {
+            indent: "    ".to_string(),
+            indent_lab: false,
+            lit_types: false, mem_types: false, return_types: false, write_types: false,
+            loc: true,
+            loc_gap: 4,
+            name_map: HashMap::new()
+        }).expect("Could not write");
+        println!("{}", string);
     }
 }

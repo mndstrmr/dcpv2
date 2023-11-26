@@ -2,15 +2,57 @@ use std::collections::HashMap;
 
 use ir::{write_code, CodeFormatConfig};
 
+struct Args {
+    path: String
+}
+
+fn print_help_exit() {
+    eprintln!("Usage: dcp path [options]");
+    eprintln!("Options:");
+    eprintln!("       -h, --help    Display this help message");
+    std::process::exit(0);
+}
+
+fn parse_args() -> Args {
+    let mut path = None;
+
+    for arg in std::env::args().skip(1) {
+        if arg.starts_with("--") {
+            match &arg[2..] {
+                "help" => print_help_exit(),
+                _ => {
+                    eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
+                    std::process::exit(1);
+                }
+            }
+        } else if arg.starts_with('-') {
+            match &arg[1..] {
+                "h" => print_help_exit(),
+                _ => {
+                    eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
+                    std::process::exit(1);
+                }
+            }
+        } else if path.is_none() {
+            path = Some(arg);
+        }
+    }
+
+    Args {
+        path: path.unwrap()
+    }
+}
 
 fn main() {
+    let args = parse_args();
+
     let x86_abi = ir::Abi {
         caller_read: x86::caller_read(),
         fp: x86::frame_ptr_name(),
         func_args: x86::func_args()
     };
 
-    let bin = elf::read("samples/prec.elf").expect("Could not open ELF");
+    let bin = elf::read(&args.path).expect("Could not open ELF");
     let bin = bin.functions_from_meta();
 
     let mut funcs = Vec::new();

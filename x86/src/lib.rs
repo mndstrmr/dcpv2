@@ -61,6 +61,8 @@ pub fn name_map() -> HashMap<Name, String> {
     map.insert(RCX, "rcx".to_string());
     map.insert(R8, "r8".to_string());
     map.insert(R9, "r9".to_string());
+    map.insert(RAX, "rax".to_string());
+    map.insert(RBX, "rbx".to_string());
     map
 }
 

@@ -51,7 +51,7 @@ pub fn drain_code_to_cfg(code: &mut Vec<Instr>) -> (Vec<CfgBlock>, Cfg) {
                 node_id += 1;
             }
             Instr::If { .. } | Instr::Loop { .. } | Instr::Break(_) |
-            Instr::Continue(_) | Instr::While { .. } => panic!("if or loop stmt in cfg gen"),
+            Instr::Continue(_) | Instr::While { .. } | Instr::For { .. } => panic!("bad stmt in cfg gen"),
         }
     }
 

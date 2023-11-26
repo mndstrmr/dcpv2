@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Instr, Name, Expr, Binding, BinOp};
+use crate::{Instr, Name, Expr, Binding, BinOp, Typ};
 
 pub struct CodeFormatConfig {
     pub name_map: HashMap<Name, String>,
@@ -115,6 +115,35 @@ fn write_expr<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeFormatCon
     write_expr_at_prec(f, expr, config, 0)
 }
 
+fn write_store<W: std::fmt::Write>(f: &mut W, typ: Typ, dest: &Binding, src: &Expr, config: &CodeFormatConfig) -> std::fmt::Result {
+    match dest {
+        Binding::Name(name) => {
+            if config.write_types {
+                write!(f, "({typ}).")?;
+            }
+
+            if let Some(name) = config.name_map.get(name) {
+                write!(f, "{name}")?;
+            } else {
+                write!(f, "r{}", name.0)?;
+            }
+        }
+        Binding::Deref(expr, _) => {
+            write!(f, "*")?;
+            if config.write_types || config.mem_types {
+                write!(f, "({typ})")?;
+            }
+
+            write_expr_at_prec(f, expr, config, 10)?;
+        }
+    }
+
+    write!(f, " = ")?;
+    write_expr(f, src, config)?;
+
+    Ok(())
+}
+
 fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &CodeFormatConfig, depth: usize) -> std::fmt::Result {
     let indent = |f: &mut W| -> std::fmt::Result {
         for _ in 0..depth {
@@ -156,31 +185,7 @@ fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &C
             Instr::Store { typ, dest, src, .. } => {
                 write_loc(f)?;
                 indent(f)?;
-                
-                match dest {
-                    Binding::Name(name) => {
-                        if config.write_types {
-                            write!(f, "({typ}).")?;
-                        }
-
-                        if let Some(name) = config.name_map.get(name) {
-                            write!(f, "{name}")?;
-                        } else {
-                            write!(f, "r{}", name.0)?;
-                        }
-                    }
-                    Binding::Deref(expr, _) => {
-                        write!(f, "*")?;
-                        if config.write_types || config.mem_types {
-                            write!(f, "({typ})")?;
-                        }
-
-                        write_expr_at_prec(f, expr, config, 10)?;
-                    }
-                }
-
-                write!(f, " = ")?;
-                write_expr(f, src, config)?;
+                write_store(f, *typ, dest, src, config)?;
                 writeln!(f, ";")?;
             }
             Instr::Return { value, typ, .. } => {
@@ -237,6 +242,32 @@ fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &C
                 indent(f)?;
                 write!(f, "while ")?;
                 write_expr(f, cond, config)?;
+                writeln!(f, " {{")?;
+                write_code_at_depth(f, &body, config, depth + 1)?;
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "}}")?;
+            }
+            Instr::For { init, cond, step, body, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                write!(f, "for ")?;
+                if !init.is_empty() {
+                    assert_eq!(init.len(), 1);
+                    let Instr::Store { typ, dest, src, .. } = &init[0] else {
+                        panic!("Malformed for init");
+                    };
+                    write_store(f, *typ, dest, src, config)?;
+                    write!(f, "; ")?;
+                }
+                write_expr(f, cond, config)?;
+                write!(f, "; ")?;
+                assert_eq!(step.len(), 1);
+                let Instr::Store { typ, dest, src, .. } = &step[0] else {
+                    panic!("Malformed for step");
+                };
+                write_store(f, *typ, dest, src, config)?;
+                
                 writeln!(f, " {{")?;
                 write_code_at_depth(f, &body, config, depth + 1)?;
                 write_loc(f)?;

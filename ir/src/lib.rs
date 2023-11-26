@@ -102,6 +102,13 @@ pub enum Instr {
         cond: Expr,
         body: Vec<Instr>
     },
+    For {
+        loc: Loc,
+        cond: Expr,
+        init: Vec<Instr>,
+        step: Vec<Instr>,
+        body: Vec<Instr>
+    },
     Break(Loc),
     Continue(Loc)
 }
@@ -138,6 +145,22 @@ impl Display for Instr {
             },
             Instr::While { body, cond, .. } => {
                 writeln!(f, "while {cond} {{")?;
+                for stmt in body {
+                    writeln!(f, "\t{}", stmt.to_string().replace('\n', "\n\t"))?;
+                }
+                write!(f, "}}")?;
+                Ok(())
+            },
+            Instr::For { init, body, cond, step, .. } => {
+                writeln!(f, "for ")?;
+                if !init.is_empty() {
+                    assert_eq!(init.len(), 1);
+                    write!(f, "{}; ", init[0])?;
+                }
+                write!(f, "; {}", cond)?;
+                assert_eq!(step.len(), 1);
+                write!(f, "; {}", step[0])?;
+                write!(f, "{{")?;
                 for stmt in body {
                     writeln!(f, "\t{}", stmt.to_string().replace('\n', "\n\t"))?;
                 }
@@ -278,7 +301,8 @@ impl Instr {
         match self {
             Instr::Branch { loc, .. } | Instr::If { loc, .. } | Instr::Return { loc, .. } |
             Instr::Store { loc, .. } | Instr::Label { loc, .. } | Instr::Loop { loc, .. } |
-            Instr::While { loc, .. } | Instr::Break(loc) | Instr::Continue(loc) => *loc,
+            Instr::While { loc, .. } | Instr::Break(loc) | Instr::Continue(loc) |
+            Instr::For { loc, .. } => *loc,
         }
     }
 
@@ -286,7 +310,7 @@ impl Instr {
         match self {
             Instr::Branch { cond: None, .. } | Instr::Return { .. } | Instr::Break(_) | Instr::Continue(_) => false,
             Instr::Branch { .. } | Instr::If { .. } | Instr::Store { .. } |
-            Instr::Label { .. } | Instr::Loop { .. } | Instr::While { .. } => true 
+            Instr::Label { .. } | Instr::Loop { .. } | Instr::While { .. } | Instr::For { .. } => true 
         }
     }
 

@@ -154,7 +154,7 @@ impl Binding {
 impl Instr {
     fn has_body(&self) -> bool {
         match self {
-            Instr::If { .. } | Instr::Loop { .. } | Instr::While { .. } => true,
+            Instr::If { .. } | Instr::Loop { .. } | Instr::While { .. } | Instr::For { .. } => true,
         
             Instr::Branch { .. } | Instr::Return { .. } | Instr::Label { .. } |
             Instr::Store { .. } | Instr::Break(_) | Instr::Continue(_) => false
@@ -185,6 +185,7 @@ impl Instr {
             Instr::Return { value, .. } => f(value),
             Instr::While { cond, .. } => f(cond),
             Instr::If { cond, .. } => f(cond),
+            Instr::For { cond, .. } => f(cond),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
             Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
         })
@@ -201,6 +202,7 @@ impl Instr {
             Instr::Return { value, .. } => f(value),
             Instr::While { cond, .. } => f(cond),
             Instr::If { cond, .. } => f(cond),
+            Instr::For { cond, .. } => f(cond),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
             Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
         })
@@ -252,6 +254,11 @@ impl Instr {
             }
             Instr::Loop { body, .. } => f(body),
             Instr::While { body, .. } => f(body),
+            Instr::For { body, step, init, .. } => {
+                f(init);
+                f(step);
+                f(body)
+            },
             _ => assert!(!self.has_body())
         }
     }
@@ -264,6 +271,11 @@ impl Instr {
             }
             Instr::Loop { body, .. } => f(body),
             Instr::While { body, .. } => f(body),
+            Instr::For { body, step, init, .. } => {
+                f(init);
+                f(step);
+                f(body)
+            },
             _ => assert!(!self.has_body())
         }
     }

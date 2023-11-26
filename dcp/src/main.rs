@@ -72,6 +72,8 @@ fn main() {
         ir::if_break_negate(&mut func.code);
         ir::final_continue(&mut func.code);
         ir::while_gen(&mut func.code);
+        ir::for_gen(&mut func.code);
+        ir::for_init_search(&mut func.code);
         
         let mut name_map = func_name_map.clone();
         name_map.extend(x86::name_map());

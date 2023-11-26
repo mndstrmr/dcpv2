@@ -62,6 +62,7 @@ fn main() {
         ir::clean_unreachable_elses(&mut func.code);
         ir::loop_gen(&mut func.code);
         ir::loop_jump_to_continue(&mut func.code);
+        ir::loop_jump_to_break(&mut func.code);
         ir::clean_dead_labels(&mut func.code);
         ir::if_break_negate(&mut func.code);
         ir::final_continue(&mut func.code);

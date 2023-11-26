@@ -1,6 +1,6 @@
 use std::collections::{HashMap, hash_map::Keys};
 
-use crate::{Instr, Loc, Label, Expr, Name, Binding};
+use crate::{Instr, Expr, Name, Binding};
 
 pub enum Visit {
     Open,
@@ -206,19 +206,9 @@ impl Instr {
         })
     }
 
-    // Needs to be &mut F since otherwise we get weird type errors (most likely a compiler bug I think)
     pub fn visit<F>(&self, f: &mut F) where F: FnMut(&Instr) {
         f(self);
-
-        match self {
-            Instr::If { true_case, false_case, .. } => {
-                Instr::visit_all(true_case, f);
-                Instr::visit_all(false_case, f);
-            }
-            Instr::Loop { body, .. } => Instr::visit_all(body, f),
-            Instr::While { body, .. } => Instr::visit_all(body, f),
-            _ => assert!(!self.has_body())
-        }
+        self.visit_depth_one_bodies(&mut |instrs| Instr::visit_all(instrs, f))
     }
 
     pub fn visit_all<F>(instrs: &[Instr], f: &mut F) where F: FnMut(&Instr) {
@@ -228,15 +218,7 @@ impl Instr {
     }
 
     pub fn filter_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Instr) -> bool {
-        match self {
-            Instr::If { true_case, false_case, .. } => {
-                Instr::filter_mut_all(true_case, f);
-                Instr::filter_mut_all(false_case, f);
-            }
-            Instr::Loop { body, .. } => Instr::filter_mut_all(body, f),
-            Instr::While { body, .. } => Instr::filter_mut_all(body, f),
-            _ => assert!(!self.has_body())
-        }
+        self.visit_depth_one_bodies_mut(&mut |instrs| Instr::filter_mut_all(instrs, f))
     }
 
     pub fn filter_mut_all<F>(instrs: &mut Vec<Instr>, f: &mut F) where F: FnMut(&mut Instr) -> bool {
@@ -253,58 +235,41 @@ impl Instr {
 
     pub fn visit_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Instr) {
         f(self);
-        self.filter_mut(&mut |i| {
-            f(i);
-            false
-        })
+        self.visit_depth_one_bodies_mut(&mut |instrs| Instr::visit_mut_all(instrs, f))
     }
     
     pub fn visit_mut_all<F>(instrs: &mut Vec<Instr>, f: &mut F) where F: FnMut(&mut Instr) {
-        Instr::filter_mut_all(instrs, &mut |i| {
-            f(i);
-            false
-        })
+        for instr in instrs {
+            instr.visit_mut(f)
+        }
     }
 
-    pub fn filter_mut_pre_post<F>(&mut self, f: &mut F) where F: FnMut(&mut Instr, Visit) -> bool {
+    pub fn visit_depth_one_bodies<F>(&self, f: &mut F) where F: FnMut(&Vec<Instr>) {
         match self {
             Instr::If { true_case, false_case, .. } => {
-                Instr::filter_mut_all_pre_post(true_case, f);
-                Instr::filter_mut_all_pre_post(false_case, f);
+                f(true_case);
+                f(false_case)
             }
-            Instr::Loop { body, .. } => Instr::filter_mut_all_pre_post(body, f),
-            Instr::While { body, .. } => Instr::filter_mut_all_pre_post(body, f),
+            Instr::Loop { body, .. } => f(body),
+            Instr::While { body, .. } => f(body),
             _ => assert!(!self.has_body())
         }
     }
 
-    pub fn filter_mut_all_pre_post<F>(instrs: &mut Vec<Instr>, f: &mut F) where F: FnMut(&mut Instr, Visit) -> bool {
-        let mut i = 0;
-        while i < instrs.len() {
-            if f(&mut instrs[i], Visit::Open) {
-                instrs.remove(i);
-                continue;
+    pub fn visit_depth_one_bodies_mut<F>(&mut self, f: &mut F) where F: FnMut(&mut Vec<Instr>) {
+        match self {
+            Instr::If { true_case, false_case, .. } => {
+                f(true_case);
+                f(false_case)
             }
-            instrs[i].filter_mut_pre_post(f);
-            if f(&mut instrs[i], Visit::Close) {
-                instrs.remove(i);
-                continue;
-            }
-
-            i += 1;
+            Instr::Loop { body, .. } => f(body),
+            Instr::While { body, .. } => f(body),
+            _ => assert!(!self.has_body())
         }
     }
 
     pub fn visit_mut_blocks_pre<F>(&mut self, f: &mut F) where F: FnMut(&mut Vec<Instr>) {
-        match self {
-            Instr::If { true_case, false_case, .. } => {
-                Instr::visit_mut_all_blocks_pre(true_case, f);
-                Instr::visit_mut_all_blocks_pre(false_case, f);
-            }
-            Instr::Loop { body, .. } => Instr::visit_mut_all_blocks_pre(body, f),
-            Instr::While { body, .. } => Instr::visit_mut_all_blocks_pre(body, f),
-            _ => assert!(!self.has_body())
-        }
+        self.visit_depth_one_bodies_mut(&mut |instrs| Instr::visit_mut_all_blocks_pre(instrs, f))
     }
 
     pub fn visit_mut_all_blocks_pre<F>(instrs: &mut Vec<Instr>, f: &mut F) where F: FnMut(&mut Vec<Instr>) {
@@ -315,15 +280,7 @@ impl Instr {
     }
 
     pub fn visit_mut_blocks_post<F>(&mut self, f: &mut F) where F: FnMut(&mut Vec<Instr>) {
-        match self {
-            Instr::If { true_case, false_case, .. } => {
-                Instr::visit_mut_all_blocks_post(true_case, f);
-                Instr::visit_mut_all_blocks_post(false_case, f);
-            }
-            Instr::Loop { body, .. } => Instr::visit_mut_all_blocks_post(body, f),
-            Instr::While { body, .. } => Instr::visit_mut_all_blocks_post(body, f),
-            _ => assert!(!self.has_body())
-        }
+        self.visit_depth_one_bodies_mut(&mut |instrs| Instr::visit_mut_all_blocks_post(instrs, f))
     }
 
     pub fn visit_mut_all_blocks_post<F>(instrs: &mut Vec<Instr>, f: &mut F) where F: FnMut(&mut Vec<Instr>) {
@@ -331,20 +288,5 @@ impl Instr {
             instr.visit_mut_blocks_post(f);
         }
         f(instrs);
-    }
-
-    pub fn map<F>(&mut self, f: F) where F: Fn(Instr) -> Instr {
-        self.filter_mut(&mut |g| {
-            // I don't like this
-            let x = std::mem::replace(g, Instr::Label { loc: Loc { addr: 0 }, label: Label(0) });
-            *g = f(x);
-            false
-        });
-    }
-
-    pub fn map_all<F>(instrs: &mut [Instr], f: F) where F: Fn(Instr) -> Instr {
-        for instr in instrs {
-            instr.map(&f);
-        }
     }
 }

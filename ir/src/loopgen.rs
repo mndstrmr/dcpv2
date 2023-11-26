@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{Instr, Label, Name, Expr};
+use crate::{Instr, Label};
 
 fn jumps_to_any(instr: &Instr, dsts: &HashMap<Label, usize>) -> Option<usize> {
     let mut found = None;
@@ -36,40 +36,74 @@ pub fn loop_gen(code: &mut Vec<Instr>) {
     });
 }
 
-pub fn loop_jump_to_continue(code: &mut Vec<Instr>) {
-    let mut loops = Vec::new();
-    Instr::filter_mut_all_pre_post(code, &mut |instr, v| match instr {
-        Instr::Loop { body, .. } if v.is_open() => {
-            let mut labels = HashSet::new();
-            let mut i = 0;
-            while let Some(Instr::Label { label, .. }) = body.get(i) {
-                labels.insert(*label);
-                i += 1;
+fn loop_jump_to_continue_in(code: &mut Vec<Instr>, start_labels: &HashSet<Label>) {
+    for i in 0..code.len() {
+        let instr = &mut code[i];
+        match instr {
+            Instr::Branch { label, cond: None, loc } if start_labels.contains(label) => {
+                *instr = Instr::Continue(*loc);
             }
+            Instr::Branch { label, cond: Some(cond), loc } if start_labels.contains(label) => {
+                *instr = Instr::If {
+                    loc: *loc,
+                    cond: cond.take(),
+                    true_case: vec![Instr::Continue(*loc)],
+                    false_case: vec![]
+                };
+            }
+            Instr::Loop { body, .. } | Instr::While { body, .. } => {
+                let mut labels = HashSet::new();
+                let mut j = 0;
+                while let Some(Instr::Label { label, .. }) = body.get(j) {
+                    labels.insert(*label);
+                    j += 1;
+                }
 
-            loops.push(labels);
+                loop_jump_to_continue_in(body, &labels)
+            }
+            _ => instr.visit_depth_one_bodies_mut(&mut |b| loop_jump_to_continue_in(b, start_labels))
+        }
+    }
+}
 
-            false
+pub fn loop_jump_to_continue(code: &mut Vec<Instr>) {
+    loop_jump_to_continue_in(code, &HashSet::new())
+}
+
+fn loop_jump_to_break_in(code: &mut Vec<Instr>, end_labels: &HashSet<Label>) {
+    for i in 0..code.len() {
+        let instr = &mut code[i];
+        match instr {
+            Instr::Branch { label, cond: None, loc } if end_labels.contains(label) => {
+                *instr = Instr::Break(*loc);
+            }
+            Instr::Branch { label, cond: Some(cond), loc } if end_labels.contains(label) => {
+                *instr = Instr::If {
+                    loc: *loc,
+                    cond: cond.take(),
+                    true_case: vec![Instr::Break(*loc)],
+                    false_case: vec![]
+                };
+            }
+            Instr::Loop { .. } | Instr::While { .. } => {
+                let mut labels = HashSet::new();
+                let mut j = 0;
+                while let Some(Instr::Label { label, .. }) = code.get(i + 1 + j) {
+                    labels.insert(*label);
+                    j += 1;
+                }
+
+                if let Instr::Loop { body, .. } | Instr::While { body, .. } = &mut code[i] {
+                    loop_jump_to_break_in(body, &labels)
+                }
+            }
+            _ => instr.visit_depth_one_bodies_mut(&mut |b| loop_jump_to_break_in(b, end_labels))
         }
-        Instr::Loop { .. } if v.is_close() => {
-            loops.pop();
-            false
-        }
-        Instr::Branch { label, loc, cond: None } if v.is_open() && let Some(top_loop) = loops.last() && top_loop.contains(&label) => {
-            *instr = Instr::Continue(*loc);
-            false
-        }
-        Instr::Branch { label, loc, cond: Some(cond) } if v.is_open() && let Some(top_loop) = loops.last() && top_loop.contains(&label) => {
-            let cond = std::mem::replace(cond, Expr::Name(Name(0)));
-            *instr = Instr::If {
-                cond, loc: *loc,
-                true_case: vec![Instr::Continue(*loc)],
-                false_case: vec![]
-            };
-            false
-        }
-        _ => false
-    });
+    }
+}
+
+pub fn loop_jump_to_break(code: &mut Vec<Instr>) {
+    loop_jump_to_break_in(code, &HashSet::new())
 }
 
 pub fn if_break_negate(code: &mut Vec<Instr>) {
@@ -89,13 +123,9 @@ pub fn if_break_negate(code: &mut Vec<Instr>) {
 }
 
 pub fn final_continue(code: &mut Vec<Instr>) {
-    Instr::filter_mut_all(code, &mut |instr| match instr {
-        Instr::Loop { body, .. } => {
-            while let Some(Instr::Continue(_)) = body.last() {
-                body.pop();
-            }
-            false
+    Instr::visit_mut_all(code, &mut |instr| if let Instr::Loop { body, .. } = instr {
+        while let Some(Instr::Continue(_)) = body.last() {
+            body.pop();
         }
-        _ => false
     });
 }

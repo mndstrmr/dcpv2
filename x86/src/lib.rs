@@ -78,13 +78,13 @@ fn mem_addr(mem: &X86OpMem) -> Expr {
     let base = reg_to_name(mem.base());
     let index = reg_to_name(mem.index());
     
-    let mut addr = Expr::ILit(mem.disp(), Typ::N64);
+    let mut addr = Expr::Lit(mem.disp(), Typ::N64);
     if let Some(base) = base {
         addr = Expr::BinOp(BinOp::Add, Box::new(addr), Box::new(Expr::Name(base)));
     }
     if let Some(index) = index {
         addr = Expr::BinOp(BinOp::Add, Box::new(addr), Box::new(
-            Expr::BinOp(BinOp::Lsl, Box::new(Expr::Name(index)), Box::new(Expr::ULit(mem.scale() as u64, Typ::N64)))
+            Expr::BinOp(BinOp::Lsl, Box::new(Expr::Name(index)), Box::new(Expr::Lit(mem.scale() as i64, Typ::N64)))
         ));
     }
 
@@ -94,7 +94,7 @@ fn mem_addr(mem: &X86OpMem) -> Expr {
 fn op_expr(op: &arch::x86::X86Operand, typ: Typ) -> Expr {
     match op.op_type {
         arch::x86::X86OperandType::Reg(reg) => Expr::Name(reg_to_name(reg).unwrap()),
-        arch::x86::X86OperandType::Imm(n) => Expr::ILit(n, typ),
+        arch::x86::X86OperandType::Imm(n) => Expr::Lit(n, typ),
         arch::x86::X86OperandType::Mem(mem) => Expr::Deref(Box::new(mem_addr(&mem)), typ),
         arch::x86::X86OperandType::Invalid => panic!("Invalid")
     }
@@ -176,7 +176,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     loc,
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
-                    src: Expr::BinOp(BinOp::Sub, Box::new(Expr::Name(RSP)), Box::new(Expr::ULit(8, Typ::N64)))
+                    src: Expr::BinOp(BinOp::Sub, Box::new(Expr::Name(RSP)), Box::new(Expr::Lit(8, Typ::N64)))
                 });
             }
             arch::x86::X86Insn::X86_INS_LEAVE => {
@@ -190,7 +190,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     loc,
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
-                    src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::ULit(8, Typ::N64)))
+                    src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::Lit(8, Typ::N64)))
                 });
 
                 func.code.push(Instr::Store {
@@ -204,7 +204,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     loc,
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
-                    src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::ULit(8, Typ::N64)))
+                    src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::Lit(8, Typ::N64)))
                 });
 
                 let typ = op_typ(op(0));

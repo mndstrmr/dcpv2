@@ -42,9 +42,13 @@ fn main() {
     }
 
     for (func, (blocks, cfg)) in funcs.iter_mut().zip(func_graphs.iter_mut()) {
+        ir::remove_dead_writes(&x86_abi, &cfg, blocks);
         ir::inline_single_use_pairs(&x86_abi, &cfg, blocks);
         for block in blocks.iter_mut() {
             ir::reduce_cmp(&mut block.code);
+            ir::reduce_binop_assoc(&mut block.code);
+            ir::reduce_binop_identities(&mut block.code);
+            ir::clean_self_writes(&mut block.code);
         }
 
         let code = ir::generate_ifs(blocks, &cfg);

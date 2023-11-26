@@ -4,10 +4,10 @@ pub fn gen_frame(code: &[Instr], abi: &Abi, names_start: usize) -> Frame {
     let mut frame = Frame::new(names_start);
 
     let mut add_el = |op, r: &Expr, typ| match (op, r) {
-        (BinOp::Sub, Expr::ILit(off, _)) => {
+        (BinOp::Sub, Expr::Lit(off, _)) => {
             frame.add(-off, typ);
         }
-        (BinOp::Add, Expr::ILit(off, _)) => {
+        (BinOp::Add, Expr::Lit(off, _)) => {
             frame.add(*off, typ);
         }
         _ => frame.set_not_fully_understood()
@@ -34,8 +34,8 @@ pub fn apply_frame_names(abi: &Abi, code: &mut [Instr], frame: &Frame) {
     }
 
     let get_name = |op, r: &Expr| match (op, r) {
-        (BinOp::Sub, Expr::ILit(off, _)) => frame.name_for(-*off),
-        (BinOp::Add, Expr::ILit(off, _)) => frame.name_for(*off),
+        (BinOp::Sub, Expr::Lit(off, _)) => frame.name_for(-*off),
+        (BinOp::Add, Expr::Lit(off, _)) => frame.name_for(*off),
         _ => panic!("Unrecoginised frame access")
     };
 

@@ -105,7 +105,7 @@ impl Expr {
                     arg.visit(f);
                 }
             }
-            Expr::Name(_) | Expr::ILit(_, _) | Expr::ULit(_, _) => {}
+            Expr::Name(_) | Expr::Lit(_, _) => {}
         }
     }
 
@@ -123,7 +123,7 @@ impl Expr {
                     arg.visit_mut_post(f);
                 }
             }
-            Expr::Name(_) | Expr::ILit(_, _) | Expr::ULit(_, _) => {}
+            Expr::Name(_) | Expr::Lit(_, _) => {}
         }
 
         f(self);

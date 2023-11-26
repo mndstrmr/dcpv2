@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{Instr, Label, Expr, BinOp, MonOp};
+use crate::{Instr, Label, Expr, BinOp, MonOp, Binding};
 
 pub fn used_labels(code: &[Instr]) -> HashSet<Label> {
     let mut set = HashSet::new();
@@ -108,16 +108,58 @@ pub fn reduce_cmp(code: &mut Vec<Instr>) {
     }
 }
 
+pub fn reduce_binop_assoc(code: &mut Vec<Instr>) {
+    for instr in code {
+        instr.visit_top_exprs_mut(&mut |expr| {
+            expr.visit_mut_post(&mut |e| if let Expr::BinOp(op2, box Expr::BinOp(op1, l, box Expr::Lit(x2, t)), box Expr::Lit(x1, _)) = e {
+                match (op1, op2) {
+                    (BinOp::Sub, BinOp::Add) if x2 <= x1 => {
+                        *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 - *x2, *t)));
+                    }
+                    (BinOp::Sub, BinOp::Add) if x2 > x1 => {
+                        *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x2 - *x1, *t)));
+                    }
+                    _ => {}
+                }
+            });
+        });
+    }
+}
+
+pub fn reduce_binop_identities(code: &mut Vec<Instr>) {
+    for instr in code {
+        instr.visit_top_exprs_mut(&mut |expr| {
+            expr.visit_mut_post(&mut |e| if let Expr::BinOp(op, l, box Expr::Lit(x1, _)) = e {
+                match (op, x1) {
+                    (BinOp::Add, 0) => *e = l.take(),
+                    (BinOp::Sub, 0) => *e = l.take(),
+                    (BinOp::Mul, 1) => *e = l.take(),
+                    _ => {}
+                }
+            });
+        });
+    }
+}
+
+pub fn clean_self_writes(code: &mut Vec<Instr>) {
+    let mut i = 0;
+    while i < code.len() {
+        if let Instr::Store { dest: Binding::Name(dest), src: Expr::Name(src), .. } = code[i] && dest == src {
+            code.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
 pub fn move_constants_right(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
             expr.visit_mut_post(&mut |e| match e {
-                Expr::BinOp(BinOp::Add, box Expr::ULit(l, t), r) =>
-                    *e = Expr::BinOp(BinOp::Add, Box::new(r.take()), Box::new(Expr::ULit(*l, *t))),
-                Expr::BinOp(BinOp::Add, box Expr::ILit(l, t), r) if *l >= 0 =>
-                    *e = Expr::BinOp(BinOp::Add, Box::new(r.take()), Box::new(Expr::ILit(*l, *t))),
-                Expr::BinOp(BinOp::Add, box Expr::ILit(l, t), r) if *l < 0 =>
-                    *e = Expr::BinOp(BinOp::Sub, Box::new(r.take()), Box::new(Expr::ILit(-*l, *t))),
+                Expr::BinOp(BinOp::Add, box Expr::Lit(l, t), r) if *l >= 0 =>
+                    *e = Expr::BinOp(BinOp::Add, Box::new(r.take()), Box::new(Expr::Lit(*l, *t))),
+                Expr::BinOp(BinOp::Add, box Expr::Lit(l, t), r) if *l < 0 =>
+                    *e = Expr::BinOp(BinOp::Sub, Box::new(r.take()), Box::new(Expr::Lit(-*l, *t))),
                 _ => {}
             })
         })

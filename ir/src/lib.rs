@@ -23,6 +23,9 @@ pub use whilegen::*;
 mod frame;
 pub use frame::*;
 
+mod calls;
+pub use calls::*;
+
 pub mod visitor;
 
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};
@@ -222,8 +225,7 @@ impl Display for MonOp {
 #[derive(Debug)]
 pub enum Expr {
     Name(Name),
-    ULit(u64, Typ),
-    ILit(i64, Typ),
+    Lit(i64, Typ),
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     MonOp(MonOp, Box<Expr>),
     Deref(Box<Expr>, Typ),
@@ -234,8 +236,7 @@ impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Name(name) => write!(f, "r{}", name.0),
-            Expr::ULit(i, _) => write!(f, "{i}"),
-            Expr::ILit(i, _) => write!(f, "{i}"),
+            Expr::Lit(i, _) => write!(f, "{i}"),
             Expr::BinOp(op, l, r) => write!(f, "({l} {op} {r})"),
             Expr::MonOp(op, r) => write!(f, "{op}{r}"),
             Expr::Deref(e, _) => write!(f, "*{e}"),

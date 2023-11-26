@@ -200,7 +200,7 @@ pub enum BinOp {
     Lsl, Lsr, Asr,
     Cmp,
     Eq, Ne, Lt, Le, Gt, Ge,
-    And, Or
+    And, Or, Xor
 }
 
 impl Display for BinOp {
@@ -219,6 +219,7 @@ impl Display for BinOp {
             BinOp::Ge => f.write_str(">="),
             BinOp::And => f.write_str("&"),
             BinOp::Or => f.write_str("|"),
+            BinOp::Xor => f.write_str("^"),
             BinOp::Lsl => f.write_str("<<"),
             BinOp::Lsr => f.write_str(">>"),
             BinOp::Asr => f.write_str(">>>"),

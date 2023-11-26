@@ -44,7 +44,14 @@ fn maybe_inline_single_use_pair(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], n
         return false
     }
 
-    let deps = val.vars();
+    let mut deps = val.vars();
+    let mut has_call = false;
+    val.visit(&mut |e| if let Expr::Call(_, _) = e {
+        has_call = true;
+    });
+    if has_call {
+        deps.add_all_reads(abi.caller_read.iter().copied());
+    }
 
     for i in src + 1..dst {
         let vars = blocks[node].code[i].vars();

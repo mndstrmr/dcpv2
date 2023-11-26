@@ -7,7 +7,7 @@ struct Args {
 }
 
 fn print_help_exit() {
-    eprintln!("Usage: dcp path [options]");
+    eprintln!("Usage: dcp <path> [options]");
     eprintln!("Options:");
     eprintln!("       -h, --help    Display this help message");
     std::process::exit(0);
@@ -38,6 +38,10 @@ fn parse_args() -> Args {
         }
     }
 
+    if path.is_none() {
+        print_help_exit();
+    }
+
     Args {
         path: path.unwrap()
     }
@@ -58,9 +62,18 @@ fn main() {
     let mut funcs = Vec::new();
     let mut func_graphs = Vec::new();
 
-    for (f, func) in bin.funcs.iter().enumerate() {
+    'outer: for (f, func) in bin.funcs.iter().enumerate() {
+        for name in &[
+            "_start", "deregister_tm_clones", "register_tm_clones",
+            "frame_dummy", "__do_global_dtors_aux", "__libc_csu_init",
+            "__libc_csu_fini"] {
+            if func.name.as_deref() == Some(name) {
+                continue 'outer
+            }
+        }
+
         let mut func = x86::gen_ir_func(func, ir::Name(100 + f)).expect("Could not make initial translation");
-        
+
         ir::clean_dead_labels(&mut func.code);
         ir::move_constants_right(&mut func.code);
         let frame = ir::gen_frame(&func.code, &x86_abi, 100 + bin.funcs.len());

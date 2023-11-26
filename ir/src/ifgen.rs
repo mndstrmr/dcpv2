@@ -9,12 +9,11 @@ fn explore_reachable(cfg: &Cfg, bubble: &HashSet<usize>, root: usize) -> HashSet
         return reachable
     }
     reachable.insert(root);
-
     let mut to_visit = vec![root];
 
     while let Some(node) = to_visit.pop() {
         for child in cfg.outgoing_for(node) {
-            if !cfg.is_backward_edge(node, *child) && reachable.insert(*child) && !bubble.contains(child) {
+            if !cfg.is_backward_edge(node, *child) && reachable.insert(*child) && bubble.contains(child) {
                 to_visit.push(*child);
             }
         }
@@ -25,7 +24,6 @@ fn explore_reachable(cfg: &Cfg, bubble: &HashSet<usize>, root: usize) -> HashSet
 
 fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cfg, root: usize) -> Vec<Instr> {
     assert!(!blocks.is_empty());
-
     let mut node_id = root;
     let mut code = Vec::<Instr>::new();
 

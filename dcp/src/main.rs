@@ -138,8 +138,15 @@ fn main() {
             ir::clean_self_writes(&mut block.code);
         }
 
+        // for block in blocks.iter() {
+        //     println!("> {}", block.label);
+        //     ir::Instr::dump_block(&block.code);
+        // }
+
         let code = ir::generate_ifs(blocks, &cfg);
         func.code = code;
+
+        // ir::Instr::dump_block(&func.code);
 
         ir::clean_dead_jumps(&mut func.code);
         ir::clean_dead_labels(&mut func.code);

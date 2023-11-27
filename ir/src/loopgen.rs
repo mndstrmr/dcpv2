@@ -1,34 +1,33 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::{Instr, Label};
 
-fn jumps_to_any(instr: &Instr, dsts: &HashMap<Label, usize>) -> Option<usize> {
-    let mut found = None;
-    instr.visit(&mut |instr| if let Instr::Branch { label, .. } = instr && let Some(i) = dsts.get(&label) {
-        found = Some(*i);
-    });
-    found
-}
-
-fn extend_labels(instr: &Instr, labels: &mut HashMap<Label, usize>, value: usize) {
-    instr.visit(&mut |i| if let Instr::Label { label, .. } = i {
-        labels.insert(*label, value);
-    });
-}
 
 pub fn loop_gen(code: &mut Vec<Instr>) {
     Instr::visit_mut_all_blocks_post(code, &mut |block| {
         'outer: loop {
-            let mut own_labels = HashMap::new();
             for i in 0..block.len() {
-                if let Some(loop_start) = jumps_to_any(&block[i], &own_labels) {
-                    let loc = block[loop_start].loc();
-                    let mut body = block.drain(loop_start..=i).collect::<Vec<_>>();
-                    body.push(Instr::Break(body.last().unwrap().loc()));
-                    block.insert(loop_start, Instr::Loop { loc, body });
-                    continue 'outer
+                let mut labels = Vec::new();
+                block[i].visit(&mut |i| if let Instr::Label { label, .. } = i {
+                    labels.push(*label);
+                });
+
+                for label in labels {
+                    for j in (i + 1..block.len()).rev() {
+                        let mut found = false;
+                        block[j].visit(&mut |instr| if let Instr::Branch { label: lab, .. } = instr && *lab == label {
+                            found = true;
+                        });
+                        
+                        if found {
+                            let loc = block[i].loc();
+                            let mut body = block.drain(i..=j).collect::<Vec<_>>();
+                            body.push(Instr::Break(body.last().unwrap().loc()));
+                            block.insert(i, Instr::Loop { loc, body });
+                            continue 'outer
+                        }
+                    }
                 }
-                extend_labels(&block[i], &mut own_labels, i);
             }
 
             break

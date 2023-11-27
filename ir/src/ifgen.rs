@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{Cfg, CfgBlock, Instr, Label};
+use crate::{Cfg, CfgBlock, Instr, Label, Loc};
 
 fn explore_reachable(cfg: &Cfg, bubble: &HashSet<usize>, root: usize) -> HashSet<usize> {
     let mut reachable = HashSet::new();
@@ -13,7 +13,7 @@ fn explore_reachable(cfg: &Cfg, bubble: &HashSet<usize>, root: usize) -> HashSet
 
     while let Some(node) = to_visit.pop() {
         for child in cfg.outgoing_for(node) {
-            if !cfg.is_backward_edge(node, *child) && reachable.insert(*child) && bubble.contains(child) {
+            if !cfg.is_backward_edge(node, *child) && bubble.contains(child) && reachable.insert(*child) {
                 to_visit.push(*child);
             }
         }
@@ -27,11 +27,22 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cf
     let mut node_id = root;
     let mut code = Vec::<Instr>::new();
 
+    if bubble.is_empty() {
+        code.push(Instr::Branch {
+            loc: Loc { addr: 0 },
+            label: Label(node_id),
+            cond: None
+        });
+        return code
+    }
+
     let mut outgoing = cfg.outgoing_for(node_id);
 
     let can_branch_to = |src, dst| !cfg.is_backward_edge(src, dst) && bubble.contains(&dst);
 
     loop {
+        assert!(bubble.contains(&node_id));
+
         let block = blocks.get_mut(node_id).expect("block does not exist");
         if block.code.is_empty() {
             code.push(Instr::Branch { loc: block.loc, cond: None, label: Label(node_id) });
@@ -122,5 +133,11 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cf
 
 pub fn generate_ifs(blocks: &mut Vec<CfgBlock>, cfg: &Cfg) -> Vec<Instr> {
     let all = (0..blocks.len()).collect::<HashSet<_>>();
-    generate_ifs_in(blocks, &all, cfg, cfg.root())
+    let instrs = generate_ifs_in(blocks, &all, cfg, cfg.root());
+
+    for (b, block) in blocks.iter().enumerate() {
+        assert!(block.code.is_empty(), "Block {b} not empty");
+    }
+
+    instrs
 }

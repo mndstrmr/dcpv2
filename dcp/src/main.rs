@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use ir::{write_code, CodeFormatConfig};
+use ir::{write_code, CodeFormatConfig, FuncArg, Typ};
 
 struct Args {
     path: String,
@@ -74,7 +74,51 @@ fn main() {
     let mut funcs = Vec::new();
     let mut func_graphs = Vec::new();
 
-    'outer: for (f, func) in bin.funcs.iter().enumerate() {
+    let mut func_map = HashMap::new();
+    let mut func_shortname_map = HashMap::new();
+    let mut func_name_map = HashMap::new();
+
+    let mut global_idx = 0;
+    let mut plt_deref_map = HashMap::new();
+
+    for meta in &bin.meta {
+        if let bin::BinMeta::Name { location, name } = meta {
+            if *location == 0 {
+                continue
+            }
+            let short_name = ir::Name(global_idx, ir::Namespace::Global);
+            func_shortname_map.insert(*location, short_name);
+            func_name_map.insert(short_name, name.clone());
+
+            global_idx += 1;
+        }
+    }
+
+    let static_func_args = x86_abi.func_args.iter().map(|x| FuncArg { name: *x, typ: Typ::N64 }).collect::<Vec<_>>();
+
+    for meta in &bin.meta {
+        if let bin::BinMeta::PltElement { location, name } = meta {
+            let short_name = ir::Name(global_idx, ir::Namespace::Global);
+            plt_deref_map.insert(*location, short_name);
+            func_name_map.insert(short_name, name.clone());
+
+            match name.as_str() {
+                "alarm" => {
+                    func_map.insert(short_name, &static_func_args[0..1]);
+                }
+                "printf" => {
+                    func_map.insert(short_name, &static_func_args[0..1]);
+                }
+                _ => {}
+            };
+
+            global_idx += 1;
+        }
+    }
+
+    let plt_call_map = x86::gen_plt_data(bin.plt.as_ref(), &plt_deref_map).expect("could not make plt data");
+
+    'outer: for func in bin.funcs.iter() {
         for name in &[
             "_start", "deregister_tm_clones", "register_tm_clones",
             "frame_dummy", "__do_global_dtors_aux", "__libc_csu_init",
@@ -85,13 +129,15 @@ fn main() {
             }
         }
 
-        let mut func = x86::gen_ir_func(func, ir::Name(100 + f)).expect("Could not make initial translation");
+        let short_name = *func_shortname_map.get(&func.addr).expect("didn't have function name");
+        let mut func = x86::gen_ir_func(func, &plt_call_map, short_name).expect("Could not make initial translation");
 
         ir::clean_dead_labels(&mut func.code);
         ir::move_constants_right(&mut func.code);
-        let frame = ir::gen_frame(&func.code, &x86_abi, 100 + bin.funcs.len());
+        let frame = ir::gen_frame(&func.code, &x86_abi);
         ir::apply_frame_names(&x86_abi, &mut func.code, &frame);
-      
+        ir::replace_names(&mut func.code, &func_shortname_map);
+
         let (blocks, mut cfg) = ir::drain_code_to_cfg(&mut func.code);
         cfg.generate_backward_edges();
 
@@ -101,19 +147,12 @@ fn main() {
         func_graphs.push((blocks, cfg, frame));
     }
 
-    let mut func_map = HashMap::new();
-    let mut func_name_map = HashMap::new();
     for func in &funcs {
-        func_map.insert(func.addr, func);
-
-        if let Some(name) = &func.name {
-            func_name_map.insert(func.short_name, name.clone());
-        }
+        func_map.insert(func.short_name, &func.args[..]);
     }
-    
+
     for i in 0..funcs.len() {
         ir::insert_args(&mut func_graphs[i].0, &func_map);
-        ir::replace_names(&mut func_graphs[i].0, &func_map);
     }
 
     for (func, (blocks, cfg, frame)) in funcs.iter_mut().zip(func_graphs.iter_mut()) {

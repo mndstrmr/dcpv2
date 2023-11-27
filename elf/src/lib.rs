@@ -1,6 +1,8 @@
+#![feature(let_chains)]
+
 use std::path::Path;
 
-use bin::{RawBinary, Arch, BinMeta};
+use bin::{RawBinary, Arch, BinMeta, Plt};
 use elf::{ElfBytes, abi::{EM_X86_64}, endian::AnyEndian};
 
 #[derive(Debug)]
@@ -37,8 +39,8 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
 
     let mut meta = Vec::new();
     if let Some((symtab, strtab)) = res.symbol_table()? {
-        for symbol in symtab {
-            if symbol.st_value == 0 || symbol.st_name == 0 {
+        for symbol in symtab.iter() {
+            if symbol.st_name == 0 {
                 continue;
             }
 
@@ -49,8 +51,30 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
         }
     }
 
+    if
+        let Some((symtab, strtab)) = res.dynamic_symbol_table()? &&
+        let Some(relas) = res.section_header_by_name(".rela.plt")?
+    {
+        for x in res.section_data_as_relas(&relas)? {
+            let sym = symtab.get(x.r_sym as usize)?;
+            meta.push(BinMeta::PltElement {
+                name: strtab.get(sym.st_name as usize)?.to_string(),
+                location: x.r_offset
+            });
+        }
+    }
+
+    let mut plt = None;
+    if let Some(header) = res.section_header_by_name(".plt")? {
+        plt = Some(Plt {
+            base_addr: header.sh_addr,
+            code: res.section_data(&header)?.0.to_vec()
+        });
+    }
+
     Ok(RawBinary {
         arch,
+        plt,
         base_addr,
         code,
         meta

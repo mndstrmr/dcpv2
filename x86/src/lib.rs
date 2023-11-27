@@ -1,8 +1,10 @@
+#![feature(let_chains)]
+
 use std::collections::{HashSet, HashMap};
 
-use bin::BinFunc;
+use bin::{BinFunc, Plt};
 use capstone::{Capstone, arch::{self, BuildsCapstoneSyntax, BuildsCapstone, x86::X86OpMem}, InsnDetail, RegId};
-use ir::{Func, Name, Loc, Typ, Binding, Expr, Instr, BinOp, MonOp, Label};
+use ir::{Func, Name, Loc, Typ, Binding, Expr, Instr, BinOp, MonOp, Label, Namespace};
 
 #[derive(Debug)]
 pub enum X86Error {
@@ -15,24 +17,24 @@ impl From<capstone::Error> for X86Error {
     }
 }
 
-const RSP: Name = Name(0);
-const RBP: Name = Name(1);
-const RDI: Name = Name(2);
-const RSI: Name = Name(3);
-const RAX: Name = Name(4);
-const RCX: Name = Name(5);
-const RBX: Name = Name(6);
-const RDX: Name = Name(7);
-const R8: Name = Name(8);
-const R9: Name = Name(9);
-const R10: Name = Name(10);
-const R11: Name = Name(11);
-const R12: Name = Name(12);
-const R13: Name = Name(13);
-const R14: Name = Name(14);
-const R15: Name = Name(15);
+const RSP: Name = Name(0, Namespace::Register);
+const RBP: Name = Name(1, Namespace::Register);
+const RDI: Name = Name(2, Namespace::Register);
+const RSI: Name = Name(3, Namespace::Register);
+const RAX: Name = Name(4, Namespace::Register);
+const RCX: Name = Name(5, Namespace::Register);
+const RBX: Name = Name(6, Namespace::Register);
+const RDX: Name = Name(7, Namespace::Register);
+const R8: Name = Name(8, Namespace::Register);
+const R9: Name = Name(9, Namespace::Register);
+const R10: Name = Name(10, Namespace::Register);
+const R11: Name = Name(11, Namespace::Register);
+const R12: Name = Name(12, Namespace::Register);
+const R13: Name = Name(13, Namespace::Register);
+const R14: Name = Name(14, Namespace::Register);
+const R15: Name = Name(15, Namespace::Register);
 
-const FLAGS: Name = Name(16);
+const FLAGS: Name = Name(16, Namespace::Register);
 
 pub fn frame_ptr_name() -> Name {
     RBP
@@ -140,6 +142,18 @@ fn op_binding(op: &arch::x86::X86Operand, typ: Typ, addr: u64) -> Binding {
     }
 }
 
+fn plt_lookup(plt: &HashMap<u64, Name>, expr: Expr) -> Expr {
+    let Expr::Lit(addr, Typ::N64) = expr else {
+        return expr
+    };
+
+    if addr >= 0 && let Some(name) = plt.get(&(addr as u64)) {
+        return Expr::Name(*name)
+    }
+
+    expr
+}
+
 fn op_label(op: &arch::x86::X86Operand) -> Label {
     match op.op_type {
         arch::x86::X86OperandType::Imm(n) => Label(n as usize),
@@ -157,7 +171,49 @@ fn op_typ(op: &arch::x86::X86Operand) -> Typ {
     }
 }
 
-pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
+pub fn gen_plt_data(plt: Option<&Plt>, plt_deref_map: &HashMap<u64, Name>) -> Result<HashMap<u64, Name>, X86Error> {
+    let cs = arch::BuildsCapstone::mode(Capstone::new().x86(), arch::x86::ArchMode::Mode64)
+        .syntax(arch::x86::ArchSyntax::Att)
+        .detail(true)
+        .build()?;
+
+    let mut map = HashMap::new();
+    let Some(plt) = plt else {
+        return Ok(map)
+    };
+
+    for instr in cs.disasm_all(&plt.code, plt.base_addr)?.as_ref() {
+        println!("{}", instr);
+
+        let opcode = arch::x86::X86Insn::from(instr.id().0);
+        if opcode == arch::x86::X86Insn::X86_INS_JMP {
+            let detail: InsnDetail = cs.insn_detail(&instr)?;
+            let arch_detail: arch::ArchDetail = detail.arch_detail();
+            let ops = arch_detail.operands();
+
+            let arch::ArchOperand::X86Operand(op) = &ops[0] else {
+                panic!("plt instr not x86 op")
+            };
+
+            let arch::x86::X86OperandType::Mem(mem) = op.op_type else {
+                continue
+            };
+
+            assert_eq!(mem.base().0 as u32, arch::x86::X86Reg::X86_REG_RIP as u32);
+
+            let addr = instr.address() as i64 + mem.disp() + instr.len() as i64;
+            let Some(name) = plt_deref_map.get(&(addr as u64)) else {
+                continue
+            };
+
+            map.insert(instr.address(), *name);
+        }
+    }
+
+    Ok(map)
+}
+
+pub fn gen_ir_func(raw: &BinFunc, plt_call_map: &HashMap<u64, Name>, short_name: Name) -> Result<Func, X86Error> {
     let mut func = Func {
         short_name,
         addr: raw.addr,
@@ -193,6 +249,8 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
             label: Label(i.address() as usize)
         });
 
+        let instr_rip = i.address() + i.len() as u64;
+
         let opcode = arch::x86::X86Insn::from(i.id().0);
         match opcode {
             arch::x86::X86Insn::X86_INS_PUSH => {
@@ -200,7 +258,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 func.code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Deref(Expr::Name(RSP), typ),
-                    src: op_expr(op(0), typ, i.address())
+                    src: op_expr(op(0), typ, instr_rip)
                 });
                 func.code.push(Instr::Store {
                     loc,
@@ -240,7 +298,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: op_binding(op(0), typ, i.address()),
+                    dest: op_binding(op(0), typ, instr_rip),
                     src: Expr::Deref(Box::new(Expr::Name(RSP)), typ)
                 });
             }
@@ -253,8 +311,8 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
             arch::x86::X86Insn::X86_INS_MOVSX | arch::x86::X86Insn::X86_INS_MOVSXD => {
                 func.code.push(Instr::Store {
                     loc, typ: op_typ(op(1)),
-                    dest: op_binding(op(1), op_typ(op(1)), i.address()),
-                    src: op_expr(op(0), op_typ(op(0)), i.address())
+                    dest: op_binding(op(1), op_typ(op(1)), instr_rip),
+                    src: op_expr(op(0), op_typ(op(0)), instr_rip)
                 });
             }
             arch::x86::X86Insn::X86_INS_CBW | arch::x86::X86Insn::X86_INS_CWDE | arch::x86::X86Insn::X86_INS_CDQE => {
@@ -263,8 +321,8 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
             arch::x86::X86Insn::X86_INS_LEA => {
                 func.code.push(Instr::Store {
                     loc, typ: op_typ(op(1)),
-                    dest: op_binding(op(1), op_typ(op(1)), i.address()),
-                    src: op_addr_expr(op(0), i.address())
+                    dest: op_binding(op(1), op_typ(op(1)), instr_rip),
+                    src: op_addr_expr(op(0), instr_rip)
                 });
             }
             arch::x86::X86Insn::X86_INS_SUB | arch::x86::X86Insn::X86_INS_ADD | arch::x86::X86Insn::X86_INS_IMUL |
@@ -288,8 +346,8 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
-                    dest: op_binding(op(1), typ, i.address()),
-                    src: Expr::BinOp(binop, Box::new(op_expr(op(1), typ, i.address())), Box::new(op_expr(op(0), typ, i.address())))
+                    dest: op_binding(op(1), typ, instr_rip),
+                    src: Expr::BinOp(binop, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
                 });
             }
             arch::x86::X86Insn::X86_INS_CMP | arch::x86::X86Insn::X86_INS_TEST => {
@@ -297,7 +355,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 func.code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Name(FLAGS),
-                    src: Expr::BinOp(BinOp::Cmp, Box::new(op_expr(op(1), typ, i.address())), Box::new(op_expr(op(0), typ, i.address())))
+                    src: Expr::BinOp(BinOp::Cmp, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
                 });
             }
             arch::x86::X86Insn::X86_INS_JL | arch::x86::X86Insn::X86_INS_JLE |
@@ -343,13 +401,13 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 func.code.push(Instr::Store {
                     loc, typ: Typ::N64,
                     dest: Binding::Name(RAX),
-                    src: Expr::Call(Box::new(op_expr(op(0), Typ::N64, i.address())), vec![])
+                    src: Expr::Call(Box::new(plt_lookup(&plt_call_map, op_expr(op(0), Typ::N64, instr_rip))), vec![])
                 });
             }
             arch::x86::X86Insn::X86_INS_SETG => {
                 func.code.push(Instr::Store {
                     loc, typ: Typ::N8,
-                    dest: op_binding(op(0), Typ::N8, i.address()),
+                    dest: op_binding(op(0), Typ::N8, instr_rip),
                     src: Expr::MonOp(MonOp::CmpGt, Box::new(Expr::Name(FLAGS)))
                 });
             }

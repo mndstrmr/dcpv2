@@ -10,8 +10,15 @@ pub enum Arch {
 pub struct RawBinary {
     pub arch: Arch,
     pub base_addr: u64,
+    pub plt: Option<Plt>,
     pub code: Vec<u8>,
     pub meta: Vec<BinMeta>
+}
+
+#[derive(Debug)]
+pub struct Plt {
+    pub base_addr: u64,
+    pub code: Vec<u8>
 }
 
 #[derive(Debug)]
@@ -22,6 +29,10 @@ pub enum BinMeta {
         length: u64
     },
     Name {
+        name: String,
+        location: u64
+    },
+    PltElement {
         name: String,
         location: u64
     }
@@ -38,6 +49,7 @@ pub enum RegionType {
 #[derive(Debug)]
 pub struct FuncsBinary {
     pub arch: Arch,
+    pub plt: Option<Plt>,
     pub funcs: Vec<BinFunc>,
     pub meta: Vec<BinMeta>
 }

@@ -33,7 +33,7 @@ fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeF
             if let Some(name) = config.name_map.get(name) {
                 write!(f, "{name}")?;
             } else {
-                write!(f, "r{}", name.0)?;
+                write!(f, "{name}")?;
             }
         }
         Expr::Deref(expr, typ) => {
@@ -141,7 +141,7 @@ fn write_store<W: std::fmt::Write>(f: &mut W, typ: Typ, dest: &Binding, src: &Ex
             if let Some(name) = config.name_map.get(name) {
                 write!(f, "{name}")?;
             } else {
-                write!(f, "r{}", name.0)?;
+                write!(f, "{name}")?;
             }
         }
         Binding::Deref(expr, _) => {

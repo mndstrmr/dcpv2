@@ -1,7 +1,7 @@
 use crate::{Instr, Frame, Expr, BinOp, Binding, Abi};
 
-pub fn gen_frame(code: &[Instr], abi: &Abi, names_start: usize) -> Frame {
-    let mut frame = Frame::new(names_start);
+pub fn gen_frame(code: &[Instr], abi: &Abi) -> Frame {
+    let mut frame = Frame::new();
 
     let mut add_el = |op, r: &Expr, typ| match (op, r) {
         (BinOp::Sub, Expr::Lit(off, _)) => {

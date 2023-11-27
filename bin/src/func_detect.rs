@@ -17,6 +17,7 @@ impl RawBinary {
         if function_starts.len() == 0  {
             return FuncsBinary {
                 arch: self.arch,
+                plt: self.plt,
                 funcs: vec![BinFunc {
                     addr: self.base_addr,
                     code: self.code,
@@ -42,6 +43,7 @@ impl RawBinary {
 
         FuncsBinary {
             arch: self.arch,
+            plt: self.plt,
             funcs,
             meta: self.meta
         }

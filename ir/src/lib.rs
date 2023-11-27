@@ -32,6 +32,7 @@ pub use printer::*;
 pub mod visitor;
 
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};
+use std::fmt::Formatter;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Loc {
@@ -179,7 +180,26 @@ impl Display for Instr {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Name(pub usize);
+pub struct Name(pub u32, pub Namespace);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Namespace {
+    Local,
+    Global,
+    Register,
+    External
+}
+
+impl Display for Name {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.1 {
+            Namespace::Local => write!(f, "local{}", self.0),
+            Namespace::Global => write!(f, "global{}", self.0),
+            Namespace::Register => write!(f, "r{}", self.0),
+            Namespace::External => write!(f, "ext{}", self.0),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Label(pub usize);
@@ -193,7 +213,7 @@ pub enum Binding {
 impl Display for Binding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Binding::Name(n) => write!(f, "r{}", n.0),
+            Binding::Name(n) => write!(f, "{n}"),
             Binding::Deref(d, _) => write!(f, "*{d}")
         }
     }
@@ -267,7 +287,7 @@ pub enum Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Name(name) => write!(f, "r{}", name.0),
+            Expr::Name(name) => write!(f, "{name}"),
             Expr::Lit(i, _) => write!(f, "{i}"),
             Expr::BinOp(op, l, r) => write!(f, "({l} {op} {r})"),
             Expr::MonOp(op, r) => write!(f, "{op}{r}"),
@@ -351,7 +371,7 @@ impl Expr {
     }
 
     pub fn take(&mut self) -> Expr {
-        std::mem::replace(self, Expr::Name(Name(0)))
+        std::mem::replace(self, Expr::Name(Name(0, Namespace::Register)))
     }
 }
 
@@ -451,15 +471,15 @@ pub struct FrameElement {
 pub struct Frame {
     fully_understood: bool,
     elements: Vec<FrameElement>,
-    next_name_idx: usize
+    next_name_idx: u32
 }
 
 impl Frame {
-    pub fn new(next_name_idx: usize) -> Frame {
+    pub fn new() -> Frame {
         Frame {
             fully_understood: true,
             elements: Vec::new(),
-            next_name_idx
+            next_name_idx: 0
         }
     }
 
@@ -500,7 +520,7 @@ impl Frame {
                 }
 
                 self.elements.insert(idx, FrameElement {
-                    name: Name(self.next_name_idx),
+                    name: Name(self.next_name_idx, Namespace::Local),
                     offset, typ
                 });
                 self.next_name_idx += 1;

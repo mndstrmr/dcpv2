@@ -15,6 +15,8 @@ fn print_help_exit() -> ! {
     std::process::exit(0);
 }
 
+const STDLIB: &'static str = include_str!("../../stdlib.csv");
+
 fn parse_args() -> Args {
     let mut path = None;
     let mut filter = HashSet::new();
@@ -59,6 +61,31 @@ fn parse_args() -> Args {
     }
 }
 
+fn parse_stdlib() -> (HashMap<ir::Name, usize>, HashMap<ir::Name, &'static str>, HashMap<&'static str, ir::Name>, HashSet<ir::Name>) {
+    let mut counts = HashMap::new();
+    let mut names = HashMap::new();
+    let mut rev_names = HashMap::new();
+    let mut variadics = HashSet::new();
+    let mut external_idx = 0;
+    for line in STDLIB.lines() {
+        let mut split = line.split(",");
+        let str_name = split.next().unwrap();
+        let count: usize = split.next().unwrap().parse().unwrap();
+        let variadic = split.next().unwrap() == "T";
+
+        let name = ir::Name(external_idx, ir::Namespace::External);
+        counts.insert(name, count);
+        names.insert(name, str_name);
+        rev_names.insert(str_name, name);
+        if variadic {
+            variadics.insert(name);
+        }
+
+        external_idx += 1;
+    }
+    (counts, names, rev_names, variadics)
+}
+
 fn main() {
     let args = parse_args();
 
@@ -82,39 +109,45 @@ fn main() {
     let mut plt_deref_map = HashMap::new();
     let mut format_string_names = HashSet::new();
 
+    let (stdlib_arities, stdlib_names, stdlib_rev_names, stdlib_variadic) = parse_stdlib();
+    func_name_map.extend(stdlib_names.into_iter().map(|(x, y)| (x, y.to_string())));
+    format_string_names.extend(stdlib_variadic);
+
     for meta in &bin.meta {
         if let bin::BinMeta::Name { location, name } = meta {
             if *location == 0 {
                 continue
             }
-            let short_name = ir::Name(global_idx, ir::Namespace::Global);
-            func_shortname_map.insert(*location, short_name);
-            func_name_map.insert(short_name, name.clone());
 
-            global_idx += 1;
+            if let Some(name) = stdlib_rev_names.get(name.as_str()) {
+                func_shortname_map.insert(*location, *name);
+            } else {
+                let short_name = ir::Name(global_idx, ir::Namespace::Global);
+                func_shortname_map.insert(*location, short_name);
+                func_name_map.insert(short_name, name.clone());
+
+                global_idx += 1;
+            }
         }
     }
 
     let static_func_args = x86_abi.func_args.iter().map(|x| FuncArg { name: *x, typ: Typ::N64 }).collect::<Vec<_>>();
 
+    for (name, count) in stdlib_arities {
+        func_map.insert(name, &static_func_args[0..count]);
+    }
+
     for meta in &bin.meta {
         if let bin::BinMeta::PltElement { location, name } = meta {
-            let short_name = ir::Name(global_idx, ir::Namespace::Global);
-            plt_deref_map.insert(*location, short_name);
-            func_name_map.insert(short_name, name.clone());
+            if let Some(name) = stdlib_rev_names.get(name.as_str()) {
+                plt_deref_map.insert(*location, *name);
+            } else {
+                let short_name = ir::Name(global_idx, ir::Namespace::Global);
+                func_shortname_map.insert(*location, short_name);
+                func_name_map.insert(short_name, name.clone());
 
-            if let Some(num) = match name.as_str() {
-                "alarm" => Some(1),
-                "printf" => {
-                    format_string_names.insert(short_name);
-                    Some(1)
-                }
-                _ => None
-            } {
-                func_map.insert(short_name, &static_func_args[0..num]);
+                global_idx += 1;
             }
-
-            global_idx += 1;
         }
     }
 

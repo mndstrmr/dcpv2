@@ -33,15 +33,18 @@ pub fn update_format_string_args(abi: &Abi, blocks: &mut [CfgBlock], names: &Has
         Instr::visit_mut_all(&mut block.code, &mut |instr| {
             instr.visit_top_exprs_mut(&mut |e| {
                 e.visit_mut_post(&mut |e| if let Expr::Call(box Expr::Name(name), args) = e {
-                    if args.len() != 1 || !names.contains(name) {
+                    if !names.contains(name) {
                         return
                     }
 
-                    let Expr::StringLit(lit) = &args[0] else {
+                    let Some(Expr::StringLit(lit)) = &args.last() else {
                         return
                     };
 
-                    args.extend(abi.func_args[1..format_string_arg_count(lit) + 1].iter().map(|x| Expr::Name(*x)))
+                    args.extend(
+                        abi.func_args[args.len()..format_string_arg_count(lit) + args.len()]
+                            .iter().map(|x| Expr::Name(*x))
+                    )
                 });
             })
         })

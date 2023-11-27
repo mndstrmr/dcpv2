@@ -29,6 +29,9 @@ pub use calls::*;
 mod printer;
 pub use printer::*;
 
+mod string;
+pub use string::*;
+
 pub mod visitor;
 
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};
@@ -282,6 +285,7 @@ pub enum Expr {
     MonOp(MonOp, Box<Expr>),
     Deref(Box<Expr>, Typ),
     Call(Box<Expr>, Vec<Expr>),
+    StringLit(String)
 }
 
 impl Display for Expr {
@@ -302,6 +306,7 @@ impl Display for Expr {
                 }
                 write!(f, ")")
             },
+            Expr::StringLit(str) => write!(f, "\"{}\"", str)
         }
     }
 }

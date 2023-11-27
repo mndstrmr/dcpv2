@@ -102,15 +102,13 @@ fn main() {
             plt_deref_map.insert(*location, short_name);
             func_name_map.insert(short_name, name.clone());
 
-            match name.as_str() {
-                "alarm" => {
-                    func_map.insert(short_name, &static_func_args[0..1]);
-                }
-                "printf" => {
-                    func_map.insert(short_name, &static_func_args[0..1]);
-                }
-                _ => {}
-            };
+            if let Some(num) = match name.as_str() {
+                "alarm" => Some(1),
+                "printf" => Some(1),
+                _ => None
+            } {
+                func_map.insert(short_name, &static_func_args[0..num]);
+            }
 
             global_idx += 1;
         }
@@ -134,9 +132,13 @@ fn main() {
 
         ir::clean_dead_labels(&mut func.code);
         ir::move_constants_right(&mut func.code);
+        ir::reduce_binop_constants(&mut func.code);
         let frame = ir::gen_frame(&func.code, &x86_abi);
         ir::apply_frame_names(&x86_abi, &mut func.code, &frame);
         ir::replace_names(&mut func.code, &func_shortname_map);
+        if let Some(rodata) = bin.rodata.as_ref() {
+            ir::insert_string_lits(&mut func.code, &rodata.data, rodata.base_addr);
+        }
 
         let (blocks, mut cfg) = ir::drain_code_to_cfg(&mut func.code);
         cfg.generate_backward_edges();

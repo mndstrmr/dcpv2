@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use bin::{RawBinary, Arch, BinMeta, Plt};
+use bin::{RawBinary, Arch, BinMeta, DataBlock};
 use elf::{ElfBytes, abi::{EM_X86_64}, endian::AnyEndian};
 
 #[derive(Debug)]
@@ -66,15 +66,24 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
 
     let mut plt = None;
     if let Some(header) = res.section_header_by_name(".plt")? {
-        plt = Some(Plt {
+        plt = Some(DataBlock {
             base_addr: header.sh_addr,
-            code: res.section_data(&header)?.0.to_vec()
+            data: res.section_data(&header)?.0.to_vec()
+        });
+    }
+
+    let mut rodata = None;
+    if let Some(header) = res.section_header_by_name(".rodata")? {
+        rodata = Some(DataBlock {
+            base_addr: header.sh_addr,
+            data: res.section_data(&header)?.0.to_vec()
         });
     }
 
     Ok(RawBinary {
         arch,
         plt,
+        rodata,
         base_addr,
         code,
         meta

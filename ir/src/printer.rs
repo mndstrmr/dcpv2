@@ -36,6 +36,18 @@ fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeF
                 write!(f, "{name}")?;
             }
         }
+        Expr::StringLit(string) => {
+            write!(f, "\"")?;
+            for chr in string.chars() {
+                match chr {
+                    '\\' => write!(f, "\\\\")?,
+                    '\"' => write!(f, "\\\"")?,
+                    '\n' => write!(f, "\\n")?,
+                    _ => write!(f, "{chr}")?
+                }
+            }
+            write!(f, "\"")?;
+        }
         Expr::Deref(expr, typ) => {
             if prec > 10 {
                 write!(f, "(")?;

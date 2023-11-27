@@ -2,7 +2,7 @@
 
 use std::collections::{HashSet, HashMap};
 
-use bin::{BinFunc, Plt};
+use bin::{BinFunc, DataBlock};
 use capstone::{Capstone, arch::{self, BuildsCapstoneSyntax, BuildsCapstone, x86::X86OpMem}, InsnDetail, RegId};
 use ir::{Func, Name, Loc, Typ, Binding, Expr, Instr, BinOp, MonOp, Label, Namespace};
 
@@ -171,7 +171,7 @@ fn op_typ(op: &arch::x86::X86Operand) -> Typ {
     }
 }
 
-pub fn gen_plt_data(plt: Option<&Plt>, plt_deref_map: &HashMap<u64, Name>) -> Result<HashMap<u64, Name>, X86Error> {
+pub fn gen_plt_data(plt: Option<&DataBlock>, plt_deref_map: &HashMap<u64, Name>) -> Result<HashMap<u64, Name>, X86Error> {
     let cs = arch::BuildsCapstone::mode(Capstone::new().x86(), arch::x86::ArchMode::Mode64)
         .syntax(arch::x86::ArchSyntax::Att)
         .detail(true)
@@ -182,9 +182,7 @@ pub fn gen_plt_data(plt: Option<&Plt>, plt_deref_map: &HashMap<u64, Name>) -> Re
         return Ok(map)
     };
 
-    for instr in cs.disasm_all(&plt.code, plt.base_addr)?.as_ref() {
-        println!("{}", instr);
-
+    for instr in cs.disasm_all(&plt.data, plt.base_addr)?.as_ref() {
         let opcode = arch::x86::X86Insn::from(instr.id().0);
         if opcode == arch::x86::X86Insn::X86_INS_JMP {
             let detail: InsnDetail = cs.insn_detail(&instr)?;

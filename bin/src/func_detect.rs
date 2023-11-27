@@ -18,6 +18,7 @@ impl RawBinary {
             return FuncsBinary {
                 arch: self.arch,
                 plt: self.plt,
+                rodata: self.rodata,
                 funcs: vec![BinFunc {
                     addr: self.base_addr,
                     code: self.code,
@@ -44,6 +45,7 @@ impl RawBinary {
         FuncsBinary {
             arch: self.arch,
             plt: self.plt,
+            rodata: self.rodata,
             funcs,
             meta: self.meta
         }

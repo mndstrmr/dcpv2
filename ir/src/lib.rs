@@ -190,7 +190,6 @@ pub enum Namespace {
     Local,
     Global,
     Register,
-    External
 }
 
 impl Display for Name {
@@ -199,7 +198,6 @@ impl Display for Name {
             Namespace::Local => write!(f, "local{}", self.0),
             Namespace::Global => write!(f, "global{}", self.0),
             Namespace::Register => write!(f, "r{}", self.0),
-            Namespace::External => write!(f, "ext{}", self.0),
         }
     }
 }

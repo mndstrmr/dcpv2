@@ -80,6 +80,7 @@ fn main() {
 
     let mut global_idx = 0;
     let mut plt_deref_map = HashMap::new();
+    let mut format_string_names = HashSet::new();
 
     for meta in &bin.meta {
         if let bin::BinMeta::Name { location, name } = meta {
@@ -104,7 +105,10 @@ fn main() {
 
             if let Some(num) = match name.as_str() {
                 "alarm" => Some(1),
-                "printf" => Some(1),
+                "printf" => {
+                    format_string_names.insert(short_name);
+                    Some(1)
+                }
                 _ => None
             } {
                 func_map.insert(short_name, &static_func_args[0..num]);
@@ -168,9 +172,11 @@ fn main() {
             }
         }
 
-        ir::inline_single_use_pairs(&x86_abi, &cfg, blocks);
-        ir::remove_dead_writes(&x86_abi, &cfg, blocks);
-        ir::demote_dead_calls(&x86_abi, &cfg, blocks);
+        ir::no_remove_inline_strings(blocks);
+        ir::update_format_string_args(&x86_abi, blocks, &format_string_names);
+        ir::inline_single_use_pairs(&x86_abi, cfg, blocks);
+        ir::remove_dead_writes(&x86_abi, cfg, blocks);
+        ir::demote_dead_calls(&x86_abi, cfg, blocks);
 
         for block in blocks.iter_mut() {
             // ir::Instr::dump_block(&block.code);

@@ -157,6 +157,33 @@ pub fn inline_single_use_pairs(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     }
 }
 
+fn no_remove_inline_strings_in(blocks: &mut [CfgBlock], node: usize) {
+    let mut write_values = HashMap::new();
+
+    for instr in &mut blocks[node].code {
+        if let Instr::Store { dest: Binding::Name(name), src: Expr::StringLit(str), .. } = instr {
+            write_values.insert(*name, str.clone());
+            continue
+        }
+
+        instr.visit_top_exprs_mut(&mut |e| {
+            e.visit_mut_post(&mut |e| if let Expr::Name(name) = e && let Some(value) = write_values.get(name) {
+                *e = Expr::StringLit(value.clone());
+            })
+        });
+
+        if let Instr::Store { dest: Binding::Name(name), .. } = instr {
+            write_values.remove(name);
+        }
+    }
+}
+
+pub fn no_remove_inline_strings(blocks: &mut [CfgBlock]) {
+    for i in 0..blocks.len() {
+        no_remove_inline_strings_in(blocks, i)
+    }
+}
+
 fn remove_dead_writes_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
     let mut i = 0;
     while i < blocks[node].code.len() {

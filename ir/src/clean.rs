@@ -186,3 +186,15 @@ pub fn move_constants_right(code: &mut Vec<Instr>) {
         })
     }
 }
+
+pub fn clean_empty_true_then(code: &mut Vec<Instr>) {
+    Instr::visit_mut_all(code, &mut |instr|
+        if
+            let Instr::If { true_case, false_case, cond, .. } =
+            instr && true_case.is_empty()
+        {
+            true_case.extend(false_case.drain(..));
+            *cond = cond.take().not();
+        }
+    );
+}

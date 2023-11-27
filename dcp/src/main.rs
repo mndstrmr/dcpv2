@@ -150,8 +150,8 @@ fn main() {
 
         ir::clean_dead_jumps(&mut func.code);
         ir::clean_dead_labels(&mut func.code);
-
         ir::clean_unreachable_elses(&mut func.code);
+        ir::clean_empty_true_then(&mut func.code);
         ir::loop_gen(&mut func.code);
         ir::loop_jump_to_continue(&mut func.code);
         ir::loop_jump_to_break(&mut func.code);
@@ -161,7 +161,7 @@ fn main() {
         ir::while_gen(&mut func.code);
         ir::for_gen(&mut func.code);
         ir::for_init_search(&mut func.code);
-        
+
         let mut name_map = func_name_map.clone();
         name_map.extend(x86::name_map());
         for local in frame.locals() {

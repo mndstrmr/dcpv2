@@ -227,22 +227,45 @@ fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &C
                 write_expr(f, cond, config)?;
                 writeln!(f, " goto L{};", label.0)?;
             }
+            Instr::Expr { expr, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                write_expr(f, expr, config)?;
+                writeln!(f, ";")?;
+            }
             Instr::If { cond, true_case, false_case, .. } => {
                 write_loc(f)?;
                 indent(f)?;
-                write!(f, "if ")?;
-                write_expr(f, cond, config)?;
-                writeln!(f, " {{")?;
-                write_code_at_depth(f, &true_case, config, depth + 1)?;
-                if !false_case.is_empty() {
+
+                let mut cond = cond;
+                let mut true_case = true_case;
+                let mut false_case = false_case;
+
+                loop {
+                    write!(f, "if ")?;
+                    write_expr(f, cond, config)?;
+                    writeln!(f, " {{")?;
+                    write_code_at_depth(f, &true_case, config, depth + 1)?;
+                    if !false_case.is_empty() {
+                        write_loc(f)?;
+                        indent(f)?;
+
+                        if let Some(Instr::If { true_case: inner_true, false_case: inner_false, cond: inner_cond, .. }) = false_case.first() && false_case.len() == 1 {
+                            write!(f, "}} else ")?;
+                            true_case = inner_true;
+                            false_case = inner_false;
+                            cond = inner_cond;
+                            continue
+                        }
+
+                        writeln!(f, "}} else {{")?;
+                        write_code_at_depth(f, &false_case, config, depth + 1)?;
+                    }
                     write_loc(f)?;
                     indent(f)?;
-                    writeln!(f, "}} else {{")?;
-                    write_code_at_depth(f, &false_case, config, depth + 1)?;
+                    writeln!(f, "}}")?;
+                    break;
                 }
-                write_loc(f)?;
-                indent(f)?;
-                writeln!(f, "}}")?;
             }
             Instr::Loop { body, .. } => {
                 write_loc(f)?;

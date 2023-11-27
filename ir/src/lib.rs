@@ -110,7 +110,11 @@ pub enum Instr {
         body: Vec<Instr>
     },
     Break(Loc),
-    Continue(Loc)
+    Continue(Loc),
+    Expr {
+        loc: Loc,
+        expr: Expr
+    }
 }
 
 impl Display for Instr {
@@ -169,6 +173,7 @@ impl Display for Instr {
             },
             Instr::Break(_) => write!(f, "break;"),
             Instr::Continue(_) => write!(f, "continue;"),
+            Instr::Expr { expr, .. } => writeln!(f, "{expr}")
         }
     }
 }
@@ -303,7 +308,7 @@ impl Instr {
             Instr::Branch { loc, .. } | Instr::If { loc, .. } | Instr::Return { loc, .. } |
             Instr::Store { loc, .. } | Instr::Label { loc, .. } | Instr::Loop { loc, .. } |
             Instr::While { loc, .. } | Instr::Break(loc) | Instr::Continue(loc) |
-            Instr::For { loc, .. } => *loc,
+            Instr::For { loc, .. } | Instr::Expr { loc, .. } => *loc,
         }
     }
 
@@ -311,7 +316,8 @@ impl Instr {
         match self {
             Instr::Branch { cond: None, .. } | Instr::Return { .. } | Instr::Break(_) | Instr::Continue(_) => false,
             Instr::Branch { .. } | Instr::If { .. } | Instr::Store { .. } |
-            Instr::Label { .. } | Instr::Loop { .. } | Instr::While { .. } | Instr::For { .. } => true 
+            Instr::Label { .. } | Instr::Loop { .. } | Instr::While { .. } |
+            Instr::For { .. } | Instr::Expr { .. } => true
         }
     }
 

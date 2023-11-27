@@ -192,6 +192,35 @@ pub fn remove_dead_writes(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     }
 }
 
+fn demote_dead_calls_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
+    let mut i = 0;
+    while i < blocks[node].code.len() {
+        let Instr::Store { dest: Binding::Name(name), src: Expr::Call(_, _), .. } = &mut blocks[node].code[i] else {
+            i += 1;
+            continue
+        };
+        let name = *name;
+
+        let mut visited = HashSet::new();
+        if might_read_before_write(abi, cfg, blocks, name, node, i + 1, &mut visited) {
+            i += 1;
+            continue
+        }
+
+        let Instr::Store { src, loc, .. } = &mut blocks[node].code[i] else {
+            unreachable!()
+        };
+        blocks[node].code[i] = Instr::Expr { loc: *loc, expr: src.take() };
+        i += 1;
+    }
+}
+
+pub fn demote_dead_calls(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
+    for i in 0..blocks.len() {
+        demote_dead_calls_in(abi, cfg, blocks, i)
+    }
+}
+
 pub fn infer_func_args(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock]) -> Vec<FuncArg> {
     let mut args = Vec::new();
 

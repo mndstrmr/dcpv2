@@ -157,7 +157,8 @@ impl Instr {
             Instr::If { .. } | Instr::Loop { .. } | Instr::While { .. } | Instr::For { .. } => true,
         
             Instr::Branch { .. } | Instr::Return { .. } | Instr::Label { .. } |
-            Instr::Store { .. } | Instr::Break(_) | Instr::Continue(_) => false
+            Instr::Store { .. } | Instr::Break(_) | Instr::Continue(_) |
+            Instr::Expr { .. } => false
         }
     }
     
@@ -191,6 +192,7 @@ impl Instr {
             Instr::While { cond, .. } => f(cond),
             Instr::If { cond, .. } => f(cond),
             Instr::For { cond, .. } => f(cond),
+            Instr::Expr { expr, .. } => f(expr),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
             Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
         })
@@ -208,6 +210,7 @@ impl Instr {
             Instr::While { cond, .. } => f(cond),
             Instr::If { cond, .. } => f(cond),
             Instr::For { cond, .. } => f(cond),
+            Instr::Expr { expr, .. } => f(expr),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
             Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
         })

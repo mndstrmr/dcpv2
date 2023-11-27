@@ -190,11 +190,123 @@ pub fn move_constants_right(code: &mut Vec<Instr>) {
 pub fn clean_empty_true_then(code: &mut Vec<Instr>) {
     Instr::visit_mut_all(code, &mut |instr|
         if
-            let Instr::If { true_case, false_case, cond, .. } =
+        let Instr::If { true_case, false_case, cond, .. } =
             instr && true_case.is_empty()
         {
             true_case.extend(false_case.drain(..));
             *cond = cond.take().not();
         }
     );
+}
+
+pub fn clean_unreachable(code: &mut Vec<Instr>) {
+    Instr::visit_mut_all_blocks_post(code, &mut |instrs| {
+        let mut i = 0;
+        let mut clear = false;
+        while i < instrs.len() {
+            if clear {
+                if let Instr::Label { .. } = &instrs[i] {
+                    clear = false;
+                    i += 1;
+                    continue
+                }
+
+                instrs.remove(i);
+                continue
+            }
+
+            if !instrs[i].fallsthrough() {
+                clear = true;
+            }
+            i += 1;
+        }
+    });
+}
+
+pub fn generate_else_if(code: &mut Vec<Instr>) {
+    Instr::visit_mut_all_blocks_post(code, &mut |instrs| {
+        let mut i = instrs.len();
+        while i > 0 {
+            i -= 1;
+            let Instr::If { true_case, false_case, .. } = &instrs[i] else {
+                continue
+            };
+
+            if !false_case.is_empty() {
+                continue
+            }
+
+            let Some(Instr::Branch { .. }) = true_case.last() else {
+                continue
+            };
+
+            let Some(Instr::If { .. }) = instrs.get(i + 1) else {
+                continue
+            };
+
+            let instr = vec![instrs.remove(i + 1)];
+            let Instr::If { false_case, .. } = &mut instrs[i] else {
+                unreachable!()
+            };
+            *false_case = instr;
+            i += 1;
+        }
+    });
+}
+
+fn clean_dead_fallthrough_jumps_in(code: &mut Vec<Instr>, end: &mut HashSet<Label>) {
+    if code.is_empty() {
+        return
+    }
+
+    let mut i = code.len();
+    while i > 0 {
+        if let Some(Instr::Label { label, .. }) = code.get(i - 1) {
+            end.insert(*label);
+            i -= 1;
+            continue
+        }
+
+        if let Some(Instr::Branch { label, .. }) = code.get(i - 1) && end.contains(label) {
+            code.remove(i - 1);
+            i -= 1;
+            continue
+        }
+
+        break
+    }
+
+    if i > 0 && let Some(Instr::If { true_case, false_case, .. }) = code.get_mut(i - 1) {
+        clean_dead_fallthrough_jumps_in(true_case, end);
+        clean_dead_fallthrough_jumps_in(false_case, end);
+    }
+
+    let mut i = 0;
+    while i < code.len() {
+        let Instr::If { .. } = &code[i] else {
+            code[i].visit_depth_one_bodies_mut(&mut |body| clean_dead_fallthrough_jumps_in(body, &mut HashSet::new()));
+
+            i += 1;
+            continue
+        };
+
+        let mut new_end = HashSet::new();
+        let mut j = i + 1;
+        while let Some(Instr::Label { label, .. }) = code.get(j) {
+            new_end.insert(*label);
+            j += 1;
+        }
+
+        let Instr::If { true_case, false_case, .. } = &mut code[i] else {
+            unreachable!()
+        };
+
+        clean_dead_fallthrough_jumps_in(true_case, &mut new_end);
+        clean_dead_fallthrough_jumps_in(false_case, &mut new_end);
+        i += 1;
+    }
+}
+
+pub fn clean_dead_fallthrough_jumps(code: &mut Vec<Instr>) {
+    clean_dead_fallthrough_jumps_in(code, &mut HashSet::new())
 }

@@ -13,7 +13,7 @@ pub fn drain_code_to_cfg(code: &mut Vec<Instr>) -> (Vec<CfgBlock>, Cfg) {
 
     while let Some(instr) = dq.pop_front() {
         match instr {
-            instr @ Instr::Store { .. } => curr_block.push(instr),
+            instr @ (Instr::Store { .. } | Instr::Expr { .. }) => curr_block.push(instr),
             instr @ Instr::Return { .. } => {
                 curr_block.push(instr);
                 blocks.push(CfgBlock {

@@ -129,6 +129,8 @@ fn main() {
 
         ir::inline_single_use_pairs(&x86_abi, &cfg, blocks);
         ir::remove_dead_writes(&x86_abi, &cfg, blocks);
+        ir::demote_dead_calls(&x86_abi, &cfg, blocks);
+
         for block in blocks.iter_mut() {
             // ir::Instr::dump_block(&block.code);
             ir::reduce_cmp(&mut block.code);
@@ -161,6 +163,10 @@ fn main() {
         ir::while_gen(&mut func.code);
         ir::for_gen(&mut func.code);
         ir::for_init_search(&mut func.code);
+        ir::clean_unreachable(&mut func.code);
+        ir::generate_else_if(&mut func.code);
+        ir::clean_dead_fallthrough_jumps(&mut func.code);
+        ir::clean_dead_labels(&mut func.code);
 
         let mut name_map = func_name_map.clone();
         name_map.extend(x86::name_map());

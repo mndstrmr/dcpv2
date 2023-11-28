@@ -71,7 +71,7 @@ pub fn clean_dead_jumps(code: &mut Vec<Instr>) {
     });
 }
 
-pub fn clean_unreachable_elses(code: &mut Vec<Instr>) {
+pub fn clean_else_to_fallthrough(code: &mut Vec<Instr>) {
     Instr::visit_mut_all_blocks_post(code, &mut |block| {
         let mut i = 0;
         while i < block.len() {

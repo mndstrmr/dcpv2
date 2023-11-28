@@ -8,7 +8,7 @@ struct Args {
     path: String,
     main: String,
     filter: HashSet<String>,
-    check_void: bool
+    removed_passes: HashSet<&'static str>,
 }
 
 impl Args {
@@ -23,6 +23,10 @@ impl Args {
 
         !self.filter.contains(name)
     }
+
+    pub fn has_pass(&self, name: &str) -> bool {
+        !self.removed_passes.contains(name)
+    }
 }
 
 fn print_help_exit() -> ! {
@@ -31,53 +35,59 @@ fn print_help_exit() -> ! {
     eprintln!("       -h, --help                          Display this help message");
     eprintln!("       -f <name>       [default: all]      Decompile only the given function(s)");
     eprintln!("       -m <name>       [default: main]     Use the given function as main");
+    eprintln!("Pass disabling (all enabled by default):");
     eprintln!("       --nocheckvoid                       Prevent void return analysis");
+    eprintln!("       --nolocalnames                      Prevent transformation of local locations into names");
+    eprintln!("       --noifgen                           Prevent if-else generation, stop after MIR translation");
+    eprintln!("       --noloopgen                         Prevent loop generation, stop after if generation");
+    eprintln!("       --noinline                          Prevent expression inlining");
     std::process::exit(0);
 }
 
 const STDLIB: &'static str = include_str!("../../stdlib.csv");
 
+const CHECK_VOID: &'static str = "checkvoid";
+const LOCAL_NAMES: &'static str = "localnames";
+const IF_GEN: &'static str = "ifgen";
+const LOOP_GEN: &'static str = "loopgen";
+const INLINE: &'static str = "inline";
+
 fn parse_args() -> Args {
     let mut path = None;
     let mut filter = HashSet::new();
     let mut main = "main".to_string();
-    let mut check_void = true;
+    let mut removed_passes = HashSet::new();
 
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
-        if arg.starts_with("--") {
-            match &arg[2..] {
-                "help" => print_help_exit(),
-                "nocheckvoid" => check_void = false,
-                _ => {
-                    eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
+        match &arg[..] {
+            "-h" | "--help" => print_help_exit(),
+            "--nocheckvoid" => { removed_passes.insert(CHECK_VOID); }
+            "--nolocalnames" => { removed_passes.insert(LOCAL_NAMES); }
+            "--noifgen" => { removed_passes.insert(IF_GEN); }
+            "--noloopgen" => { removed_passes.insert(LOOP_GEN); }
+            "--noinline" => { removed_passes.insert(INLINE); }
+            "-f" => {
+                let Some(name) = iter.next() else {
+                    eprintln!("Expected function name. Use `dcp -h` for help.");
                     std::process::exit(1);
-                }
+                };
+                filter.insert(name);
             }
-        } else if arg.starts_with('-') {
-            match &arg[1..] {
-                "h" => print_help_exit(),
-                "f" => {
-                    let Some(name) = iter.next() else {
-                        eprintln!("Expected function name. Use `dcp -h` for help.");
-                        std::process::exit(1);
-                    };
-                    filter.insert(name);
-                }
-                "m" => {
-                    let Some(name) = iter.next() else {
-                        eprintln!("Expected function name. Use `dcp -h` for help.");
-                        std::process::exit(1);
-                    };
-                    main = name;
-                }
-                _ => {
-                    eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
+            "-m" => {
+                let Some(name) = iter.next() else {
+                    eprintln!("Expected function name. Use `dcp -h` for help.");
                     std::process::exit(1);
-                }
+                };
+                main = name;
             }
-        } else if path.is_none() {
-            path = Some(arg);
+            _ if path.is_none() => {
+                path = Some(arg);
+            }
+            _ => {
+                eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
+                std::process::exit(1);
+            }
         }
     }
 
@@ -89,7 +99,7 @@ fn parse_args() -> Args {
         path: path.unwrap(),
         filter,
         main,
-        check_void
+        removed_passes
     }
 }
 
@@ -230,8 +240,14 @@ fn main() {
         ir::clean_dead_labels(&mut func.code);
         ir::move_constants_right(&mut func.code);
         ir::reduce_binop_constants(&mut func.code);
-        let frame = ir::gen_frame(&func.code, &x86_abi);
-        ir::apply_frame_names(&x86_abi, &mut func.code, &frame);
+
+        let frame;
+        if args.has_pass(LOCAL_NAMES) {
+            frame = ir::gen_frame(&func.code, &x86_abi);
+            ir::apply_frame_names(&x86_abi, &mut func.code, &frame);
+        } else {
+            frame = ir::Frame::new();
+        }
 
         // Update with names of known entities
         ir::replace_names(&mut func.code, &symbols.func_locations);
@@ -239,7 +255,7 @@ fn main() {
             ir::insert_string_lits(&mut func.code, &rodata.data, rodata.base_addr);
         }
 
-        if let Some(callgraph) = &mut callgraph {
+        if let Some(callgraph) = &mut callgraph && args.has_pass(CHECK_VOID) {
             ir::insert_in_callgraph(callgraph, &func);
         }
 
@@ -264,7 +280,7 @@ fn main() {
 
     // We can now safely assume that if something is unused, it's actually unused, so let's
     // figure out which functions return something
-    if let Some(callgraph) = &mut callgraph && args.check_void {
+    if let Some(callgraph) = &mut callgraph && args.has_pass(CHECK_VOID) {
         callgraph.trim_unreachable();
         callgraph.generate_backward_edges();
         let sorted = callgraph.topological_sort();
@@ -292,12 +308,13 @@ fn main() {
             continue
         }
 
-        ir::inline_single_use_pairs(&x86_abi, &cfg, &mut blocks[..]);
-        ir::remove_dead_writes(&x86_abi, &cfg, &mut blocks[..]);
-        ir::demote_dead_calls(&x86_abi, &cfg, &mut blocks[..], &mut HashSet::new());
+        if args.has_pass(INLINE) {
+            ir::inline_single_use_pairs(&x86_abi, &cfg, &mut blocks[..]);
+            ir::remove_dead_writes(&x86_abi, &cfg, &mut blocks[..]);
+            ir::demote_dead_calls(&x86_abi, &cfg, &mut blocks[..], &mut HashSet::new());
+        }
 
         for block in blocks.iter_mut() {
-            // ir::Instr::dump_block(&block.code);
             ir::reduce_cmp(&mut block.code);
             ir::reduce_binop_assoc(&mut block.code);
             ir::reduce_binop_constants(&mut block.code);
@@ -305,33 +322,41 @@ fn main() {
             ir::clean_self_writes(&mut block.code);
         }
 
-        // for block in blocks.iter() {
-        //     println!("> {}", block.label);
-        //     ir::Instr::dump_block(&block.code);
-        // }
+        'end: {
+            if !args.has_pass(IF_GEN) {
+                for block in blocks.iter_mut() {
+                    func.code.extend(block.code.drain(..));
+                }
 
-        let code = ir::generate_ifs(&mut blocks, &cfg);
-        func.code = code;
+                break 'end
+            }
 
-        // ir::Instr::dump_block(&func.code);
+            let code = ir::generate_ifs(&mut blocks, &cfg);
+            func.code = code;
 
-        ir::clean_dead_jumps(&mut func.code);
-        ir::clean_dead_labels(&mut func.code);
-        ir::clean_unreachable_elses(&mut func.code);
-        ir::clean_empty_true_then(&mut func.code);
-        ir::loop_gen(&mut func.code);
-        ir::loop_jump_to_continue(&mut func.code);
-        ir::loop_jump_to_break(&mut func.code);
-        ir::clean_dead_labels(&mut func.code);
-        ir::if_break_negate(&mut func.code);
-        ir::final_continue(&mut func.code);
-        ir::while_gen(&mut func.code);
-        ir::for_gen(&mut func.code);
-        ir::for_init_search(&mut func.code);
-        ir::clean_unreachable(&mut func.code);
-        ir::generate_else_if(&mut func.code);
-        ir::clean_dead_fallthrough_jumps(&mut func.code);
-        ir::clean_dead_labels(&mut func.code);
+            ir::clean_dead_jumps(&mut func.code);
+            ir::clean_dead_labels(&mut func.code);
+            ir::clean_else_to_fallthrough(&mut func.code);
+            ir::clean_empty_true_then(&mut func.code);
+
+            if !args.has_pass(LOOP_GEN) {
+                break 'end
+            }
+
+            ir::loop_gen(&mut func.code);
+            ir::loop_jump_to_continue(&mut func.code);
+            ir::loop_jump_to_break(&mut func.code);
+            ir::clean_dead_labels(&mut func.code);
+            ir::if_break_negate(&mut func.code);
+            ir::final_continue(&mut func.code);
+            ir::while_gen(&mut func.code);
+            ir::for_gen(&mut func.code);
+            ir::for_init_search(&mut func.code);
+            ir::clean_unreachable(&mut func.code);
+            ir::generate_else_if(&mut func.code);
+            ir::clean_dead_fallthrough_jumps(&mut func.code);
+            ir::clean_dead_labels(&mut func.code);
+        }
 
         pretty_print(func.short_name, &func, &long_names, &frame)
     }

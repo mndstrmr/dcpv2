@@ -572,12 +572,13 @@ impl Frame {
 
     pub fn add(&mut self, offset: i64, typ: Typ) -> bool {
         match self.elements.binary_search_by_key(&offset, |e| e.offset) {
-            Ok(idx) => {
-                if self.elements[idx].typ != typ {
-                    self.set_not_fully_understood();
-                }
+            Ok(_) => {
+                // FIXME: This seems to be incorrectly blocking at the moment
+                // if self.elements[idx].typ != typ {
+                //     self.set_not_fully_understood();
+                // }
                 self.fully_understood
-            },
+            }
             Err(idx) => {
                 if idx != 0 {
                     let prev = self.elements.get(idx - 1).unwrap();

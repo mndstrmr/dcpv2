@@ -1,0 +1,4 @@
+- InvMixColumns produces a lot of calls to functions the results of which are ignored. This is correct.
+BinaryNinja seems to recognise that this can be optimised out.
+- BinaryNinja agrees that in ThirdFour the for loop has no body
+-

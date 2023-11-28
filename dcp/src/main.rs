@@ -6,7 +6,9 @@ use ir::{write_code, CodeFormatConfig};
 
 struct Args {
     path: String,
-    filter: HashSet<String>
+    main: String,
+    filter: HashSet<String>,
+    check_void: bool
 }
 
 impl Args {
@@ -36,12 +38,15 @@ const STDLIB: &'static str = include_str!("../../stdlib.csv");
 fn parse_args() -> Args {
     let mut path = None;
     let mut filter = HashSet::new();
+    let mut main = "main".to_string();
+    let mut check_void = true;
 
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         if arg.starts_with("--") {
             match &arg[2..] {
                 "help" => print_help_exit(),
+                "nocheckvoid" => check_void = false,
                 _ => {
                     eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
                     std::process::exit(1);
@@ -56,6 +61,13 @@ fn parse_args() -> Args {
                         std::process::exit(1);
                     };
                     filter.insert(name);
+                }
+                "m" => {
+                    let Some(name) = iter.next() else {
+                        eprintln!("Expected function name. Use `dcp -h` for help.");
+                        std::process::exit(1);
+                    };
+                    main = name;
                 }
                 _ => {
                     eprintln!("Unknown option `{arg}`. Use `dcp -h` for help.");
@@ -73,7 +85,9 @@ fn parse_args() -> Args {
 
     Args {
         path: path.unwrap(),
-        filter
+        filter,
+        main,
+        check_void
     }
 }
 
@@ -115,7 +129,7 @@ impl FunctionSet {
     }
 }
 
-fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, String>) -> FunctionSet {
+fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, String>, main_name: &str) -> FunctionSet {
     let mut funcs = FunctionSet {
         func_locations: HashMap::new(),
         func_args: HashMap::new(),
@@ -134,7 +148,7 @@ fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, St
             }
 
             let short_name = ir::Name(global_idx, ir::Namespace::Global);
-            if *name == "main" {
+            if *name == main_name {
                 funcs.entry_func = Some(short_name);
             }
             funcs.func_locations.insert(*location, short_name);
@@ -160,9 +174,8 @@ fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, St
 
 fn should_attempt(func_name: &str) -> bool {
     for name in &[
-        "_start", "deregister_tm_clones", "register_tm_clones",
-        "frame_dummy", "__do_global_dtors_aux", "__libc_csu_init",
-        "__libc_csu_fini"
+        "_start", "deregister_tm_clones", "register_tm_clones",  "frame_dummy",
+        "__do_global_dtors_aux", "__libc_csu_init", "__libc_csu_fini"
     ] {
         if func_name == *name {
             return false
@@ -195,7 +208,7 @@ fn main() {
 
     let mut df_funcs = HashMap::new();
 
-    let mut symbols = get_bin_symbols(&bin, &mut long_names);
+    let mut symbols = get_bin_symbols(&bin, &mut long_names, &args.main);
     let mut callgraph = symbols.entry_func.map(ir::CallGraph::new);
 
     let plt_call_map = x86::gen_plt_data(bin.plt.as_ref(), &symbols.got).expect("could not make plt data");
@@ -241,11 +254,7 @@ fn main() {
 
     // Now we know the number of arguments for each function we can update the call-sites,
     // and deal with format strings too
-    for DataFlowAnalysisFunc { func, blocks, .. } in df_funcs.values_mut() {
-        if args.is_filtered(long_names.get(&func.short_name)) {
-            continue
-        }
-
+    for DataFlowAnalysisFunc { blocks, .. } in df_funcs.values_mut() {
         ir::insert_args(&x86_abi, blocks, &symbols.func_args);
         ir::no_remove_inline_strings(blocks);
         ir::update_format_string_args(&x86_abi, blocks, &symbols.func_args);
@@ -253,7 +262,7 @@ fn main() {
 
     // We can now safely assume that if something is unused, it's actually unused, so let's
     // figure out which functions return something
-    if let Some(callgraph) = &mut callgraph {
+    if let Some(callgraph) = &mut callgraph && args.check_void {
         callgraph.trim_unreachable();
         callgraph.generate_backward_edges();
         let sorted = callgraph.topological_sort();
@@ -274,7 +283,9 @@ fn main() {
     }
 
     // Now everything is in place we can aggressively optimise this function
-    for DataFlowAnalysisFunc { mut func, mut blocks, cfg, frame } in df_funcs.into_values() {
+    let mut values = df_funcs.into_values().collect::<Vec<_>>();
+    values.sort_by_cached_key(|el| el.func.addr);
+    for DataFlowAnalysisFunc { mut func, mut blocks, cfg, frame } in values {
         if args.is_filtered(long_names.get(&func.short_name)) {
             continue
         }

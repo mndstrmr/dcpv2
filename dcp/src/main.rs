@@ -28,8 +28,10 @@ impl Args {
 fn print_help_exit() -> ! {
     eprintln!("Usage: dcp <path> [options]");
     eprintln!("Options:");
-    eprintln!("       -h, --help    Display this help message");
-    eprintln!("       -f <name>     Decompile only the given function(s)");
+    eprintln!("       -h, --help                          Display this help message");
+    eprintln!("       -f <name>       [default: all]      Decompile only the given function(s)");
+    eprintln!("       -m <name>       [default: main]     Use the given function as main");
+    eprintln!("       --nocheckvoid                       Prevent void return analysis");
     std::process::exit(0);
 }
 

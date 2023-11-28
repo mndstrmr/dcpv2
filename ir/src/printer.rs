@@ -216,7 +216,7 @@ fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &C
                 write_store(f, *typ, dest, src, config)?;
                 writeln!(f, ";")?;
             }
-            Instr::Return { value, typ, .. } => {
+            Instr::Return { value: Some(value), typ, .. } => {
                 write_loc(f)?;
                 indent(f)?;
                 if config.return_types {
@@ -226,6 +226,11 @@ fn write_code_at_depth<W: std::fmt::Write>(f: &mut W, code: &[Instr], config: &C
                 }
                 write_expr(f, value, config)?;
                 writeln!(f, ";")?;
+            }
+            Instr::Return { value: None, .. } => {
+                write_loc(f)?;
+                indent(f)?;
+                writeln!(f, "return;")?;
             }
             Instr::Branch { label, cond: None, .. } => {
                 write_loc(f)?;

@@ -188,13 +188,14 @@ impl Instr {
                 f(e);
             }
             Instr::Store { src, .. } => f(src),
-            Instr::Return { value, .. } => f(value),
+            Instr::Return { value: Some(value), .. } => f(value),
             Instr::While { cond, .. } => f(cond),
             Instr::If { cond, .. } => f(cond),
             Instr::For { cond, .. } => f(cond),
             Instr::Expr { expr, .. } => f(expr),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
-            Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
+            Instr::Label { .. } | Instr::Branch { cond: None, .. } |
+            Instr::Return { value: None, .. }=> {}
         })
     }
 
@@ -206,13 +207,14 @@ impl Instr {
                 f(e);
             }
             Instr::Store { src, .. } => f(src),
-            Instr::Return { value, .. } => f(value),
+            Instr::Return { value: Some(value), .. } => f(value),
             Instr::While { cond, .. } => f(cond),
             Instr::If { cond, .. } => f(cond),
             Instr::For { cond, .. } => f(cond),
             Instr::Expr { expr, .. } => f(expr),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
-            Instr::Label { .. } | Instr::Branch { cond: None, .. } => {}
+            Instr::Label { .. } | Instr::Branch { cond: None, .. } |
+            Instr::Return { value: None, .. }=> {}
         })
     }
 

@@ -142,18 +142,6 @@ fn op_binding(op: &arch::x86::X86Operand, typ: Typ, addr: u64) -> Binding {
     }
 }
 
-fn plt_lookup(plt: &HashMap<u64, Name>, expr: Expr) -> Expr {
-    let Expr::Lit(addr, Typ::N64) = expr else {
-        return expr
-    };
-
-    if addr >= 0 && let Some(name) = plt.get(&(addr as u64)) {
-        return Expr::Name(*name)
-    }
-
-    expr
-}
-
 fn op_label(op: &arch::x86::X86Operand) -> Label {
     match op.op_type {
         arch::x86::X86OperandType::Imm(n) => Label(n as usize),
@@ -211,13 +199,12 @@ pub fn gen_plt_data(plt: Option<&DataBlock>, plt_deref_map: &HashMap<u64, Name>)
     Ok(map)
 }
 
-pub fn gen_ir_func(raw: &BinFunc, plt_call_map: &HashMap<u64, Name>, short_name: Name) -> Result<Func, X86Error> {
+pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
     let mut func = Func {
         short_name,
         addr: raw.addr,
         args: vec![],
         ret: None,
-        name: raw.name.clone(),
         code: vec![]
     };
 
@@ -301,7 +288,7 @@ pub fn gen_ir_func(raw: &BinFunc, plt_call_map: &HashMap<u64, Name>, short_name:
                 });
             }
             arch::x86::X86Insn::X86_INS_RET => {
-                func.code.push(Instr::Return { loc, typ: Typ::N64, value: Expr::Name(RAX) });
+                func.code.push(Instr::Return { loc, typ: Typ::N64, value: Some(Expr::Name(RAX)) });
             }
             arch::x86::X86Insn::X86_INS_MOV | arch::x86::X86Insn::X86_INS_MOVZX |
             arch::x86::X86Insn::X86_INS_MOVABS | arch::x86::X86Insn::X86_INS_MOVSD |
@@ -399,7 +386,7 @@ pub fn gen_ir_func(raw: &BinFunc, plt_call_map: &HashMap<u64, Name>, short_name:
                 func.code.push(Instr::Store {
                     loc, typ: Typ::N64,
                     dest: Binding::Name(RAX),
-                    src: Expr::Call(Box::new(plt_lookup(&plt_call_map, op_expr(op(0), Typ::N64, instr_rip))), vec![])
+                    src: Expr::Call(Box::new( op_expr(op(0), Typ::N64, instr_rip)), vec![])
                 });
             }
             arch::x86::X86Insn::X86_INS_SETG => {

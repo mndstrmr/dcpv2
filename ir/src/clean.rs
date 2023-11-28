@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{Instr, Label, Expr, BinOp, MonOp, Binding};
+use crate::{Instr, Label, Expr, BinOp, MonOp, Binding, CfgBlock};
 
 pub fn used_labels(code: &[Instr]) -> HashSet<Label> {
     let mut set = HashSet::new();
@@ -309,4 +309,12 @@ fn clean_dead_fallthrough_jumps_in(code: &mut Vec<Instr>, end: &mut HashSet<Labe
 
 pub fn clean_dead_fallthrough_jumps(code: &mut Vec<Instr>) {
     clean_dead_fallthrough_jumps_in(code, &mut HashSet::new())
+}
+
+pub fn demote_to_return_void(blocks: &mut [CfgBlock]) {
+    for block in blocks {
+        Instr::visit_mut_all(&mut block.code, &mut |instr| if let Instr::Return { value, .. } = instr {
+            *value = None;
+        });
+    }
 }

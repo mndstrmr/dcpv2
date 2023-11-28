@@ -219,18 +219,26 @@ pub fn remove_dead_writes(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     }
 }
 
-fn demote_dead_calls_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize) {
+fn demote_dead_calls_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize, sometimes_read: &mut HashSet<Name>) {
     let mut i = 0;
     while i < blocks[node].code.len() {
-        let Instr::Store { dest: Binding::Name(name), src: Expr::Call(_, _), .. } = &mut blocks[node].code[i] else {
+        let Instr::Store { dest: Binding::Name(name), src: Expr::Call(func, _), .. } = &mut blocks[node].code[i] else {
             i += 1;
             continue
         };
         let name = *name;
 
+        let func_name = match &**func {
+            Expr::Name(name) => Some(*name),
+            _ => None
+        };
+
         let mut visited = HashSet::new();
         if might_read_before_write(abi, cfg, blocks, name, node, i + 1, &mut visited) {
             i += 1;
+            if let Some(name) = func_name {
+                sometimes_read.insert(name);
+            }
             continue
         }
 
@@ -242,9 +250,9 @@ fn demote_dead_calls_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usi
     }
 }
 
-pub fn demote_dead_calls(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
+pub fn demote_dead_calls(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], sometimes_read: &mut HashSet<Name>) {
     for i in 0..blocks.len() {
-        demote_dead_calls_in(abi, cfg, blocks, i)
+        demote_dead_calls_in(abi, cfg, blocks, i, sometimes_read)
     }
 }
 

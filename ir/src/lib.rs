@@ -36,6 +36,7 @@ pub mod visitor;
 
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};
 use std::fmt::Formatter;
+use std::hash::Hash;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Loc {
@@ -89,7 +90,7 @@ pub enum Instr {
     Return {
         loc: Loc,
         typ: Typ,
-        value: Expr
+        value: Option<Expr>
     },
     If {
         loc: Loc,
@@ -128,7 +129,8 @@ impl Display for Instr {
             Instr::Label { label, .. } => write!(f, "@{:x}:", label.0),
             Instr::Branch { label, cond: None, .. } => write!(f, "jump @0x{:x};", label.0),
             Instr::Branch { label, cond: Some(cond), .. } => write!(f, "if {cond} then jump @0x{:x};", label.0),
-            Instr::Return { value, .. } => write!(f, "return {value};"),
+            Instr::Return { value: Some(value), .. } => write!(f, "return {value};"),
+            Instr::Return { value: None, .. } => write!(f, "return;"),
             Instr::If { cond, true_case, false_case, .. } => {
                 writeln!(f, "if {cond} {{")?;
                 for stmt in true_case {
@@ -315,7 +317,6 @@ impl Display for Expr {
 pub struct Func {
     pub addr: u64,
     pub short_name: Name,
-    pub name: Option<String>,
     pub args: Vec<FuncArg>,
     pub ret: Option<Typ>,
     pub code: Vec<Instr>
@@ -387,17 +388,20 @@ pub struct CfgBlock {
     pub code: Vec<Instr>
 }
 
-#[derive(Debug)]
-pub struct Cfg {
-    root: usize,
-    incoming: HashMap<usize, HashSet<usize>>,
-    outgoing: HashMap<usize, HashSet<usize>>,
-    backward_edges: Option<HashSet<(usize, usize)>>
+#[derive(Debug, Clone)]
+pub struct Graph<T> {
+    root: T,
+    incoming: HashMap<T, HashSet<T>>,
+    outgoing: HashMap<T, HashSet<T>>,
+    backward_edges: Option<HashSet<(T, T)>>
 }
 
-impl Cfg {
-    pub fn new(root: usize) -> Cfg {
-        Cfg {
+pub type Cfg = Graph<usize>;
+pub type CallGraph = Graph<Name>;
+
+impl<T: Clone + Copy + PartialEq + Eq + Hash> Graph<T> {
+    pub fn new(root: T) -> Graph<T> {
+        Graph {
             root,
             incoming: HashMap::new(),
             outgoing: HashMap::new(),
@@ -405,26 +409,60 @@ impl Cfg {
         }
     }
 
-    pub fn root(&self) -> usize {
+    pub fn root(&self) -> T {
         self.root
     }
 
-    pub fn add_node(&mut self, node: usize) {
+    pub fn add_node(&mut self, node: T) {
         self.incoming.insert(node, HashSet::new());
         self.outgoing.insert(node, HashSet::new());
     }
 
-    pub fn add_edge(&mut self, src: usize, dst: usize) {
+    pub fn remove_node(&mut self, node: T) {
+        for outgoing in self.outgoing_for(node).clone() {
+            self.incoming.get_mut(&outgoing).unwrap().remove(&node);
+        }
+        for incoming in self.incoming_for(node).clone() {
+            self.outgoing.get_mut(&incoming).unwrap().remove(&node);
+        }
+
+        self.incoming.remove(&node);
+        self.outgoing.remove(&node);
+    }
+
+    pub fn add_edge(&mut self, src: T, dst: T) {
         self.outgoing.get_mut(&src).expect("src not a node").insert(dst);
         self.incoming.get_mut(&dst).expect("dst not a node").insert(src);
         self.backward_edges = None;
     }
 
-    pub fn outgoing_for(&self, src: usize) -> &HashSet<usize> {
+    pub fn add_edge_add_nodes(&mut self, src: T, dst: T) {
+        if !self.outgoing.contains_key(&src) {
+            self.outgoing.insert(src, HashSet::new());
+            self.incoming.insert(src, HashSet::new());
+        }
+
+        if !self.outgoing.contains_key(&dst) {
+            self.outgoing.insert(dst, HashSet::new());
+            self.incoming.insert(dst, HashSet::new());
+        }
+
+        self.outgoing.get_mut(&src).expect("src not a node").insert(dst);
+        self.incoming.get_mut(&dst).expect("dst not a node").insert(src);
+        self.backward_edges = None;
+    }
+
+    pub fn remove_edge(&mut self, src: T, dst: T) {
+        self.outgoing.get_mut(&src).expect("src not a node").remove(&dst);
+        self.incoming.get_mut(&dst).expect("dst not a node").remove(&src);
+        self.backward_edges = None;
+    }
+
+    pub fn outgoing_for(&self, src: T) -> &HashSet<T> {
         self.outgoing.get(&src).expect("not a node")
     }
 
-    pub fn incoming_for(&self, dst: usize) -> &HashSet<usize> {
+    pub fn incoming_for(&self, dst: T) -> &HashSet<T> {
         self.incoming.get(&dst).expect("not a node")
     }
 
@@ -460,8 +498,40 @@ impl Cfg {
         self.backward_edges = Some(backward_edges);
     }
 
-    pub fn is_backward_edge(&self, src: usize, dst: usize) -> bool {
+    pub fn is_backward_edge(&self, src: T, dst: T) -> bool {
         self.backward_edges.as_ref().expect("call generate_backward_edges first").contains(&(src, dst))
+    }
+
+    pub fn topological_sort(&self) -> Vec<T> {
+        let mut new_graph = self.clone();
+
+        let mut sorted = Vec::new();
+        let mut nodes_with_no_incoming = vec![self.root];
+
+        while let Some(node) = nodes_with_no_incoming.pop() {
+            sorted.push(node);
+
+            for outgoing in new_graph.outgoing_for(node).clone() {
+                if self.is_backward_edge(node, outgoing) {
+                    continue
+                }
+
+                new_graph.remove_edge(node, outgoing);
+                if new_graph.incoming_for(outgoing).is_empty() {
+                    nodes_with_no_incoming.push(outgoing);
+                }
+            }
+        }
+
+        sorted
+    }
+
+    pub fn trim_unreachable(&mut self) {
+        for node in self.incoming.keys().cloned().collect::<Vec<_>>() {
+            if self.incoming_for(node).is_empty() && node != self.root() {
+                self.remove_node(node)
+            }
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::{VecDeque, HashMap};
 
-use crate::{CfgBlock, Instr, Cfg, Label};
+use crate::{CfgBlock, Instr, Cfg, Label, Func, Expr, CallGraph};
 
 pub fn drain_code_to_cfg(code: &mut Vec<Instr>) -> (Vec<CfgBlock>, Cfg) {
     let mut blocks = Vec::new();
@@ -80,4 +80,14 @@ pub fn drain_code_to_cfg(code: &mut Vec<Instr>) -> (Vec<CfgBlock>, Cfg) {
     }
 
     (blocks, cfg)
+}
+
+pub fn insert_in_callgraph(graph: &mut CallGraph, func: &Func) {
+    Instr::visit_all(&func.code, &mut |instr| {
+        instr.visit_top_exprs(&mut |e| e.visit(&mut |e| {
+            if let Expr::Call(box Expr::Name(name), _) = e {
+                graph.add_edge_add_nodes(func.short_name, *name);
+            }
+        }))
+    })
 }

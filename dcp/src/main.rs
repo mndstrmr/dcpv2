@@ -353,7 +353,7 @@ fn main() {
             ir::for_gen(&mut func.code);
             ir::for_init_search(&mut func.code);
             ir::clean_unreachable(&mut func.code);
-            ir::generate_else_if(&mut func.code);
+            ir::generate_elseif(&mut func.code);
             ir::clean_dead_fallthrough_jumps(&mut func.code);
             ir::clean_dead_labels(&mut func.code);
         }

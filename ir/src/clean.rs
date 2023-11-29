@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::{Instr, Label, Expr, BinOp, MonOp, Binding, CfgBlock};
 
+/// Return the set of labels which are branches to in the given code
 pub fn used_labels(code: &[Instr]) -> HashSet<Label> {
     let mut set = HashSet::new();
     Instr::visit_all(code, &mut |i: &Instr| if let Instr::Branch { label, .. } = i {
@@ -10,6 +11,7 @@ pub fn used_labels(code: &[Instr]) -> HashSet<Label> {
     set
 }
 
+/// Remove all labels in the given code which are never branched to
 pub fn clean_dead_labels(code: &mut Vec<Instr>) {
     let used = used_labels(code);
     Instr::filter_mut_all(code, &mut |i| match i {
@@ -34,6 +36,9 @@ fn equivalent_labels_at(code: &[Instr]) -> HashSet<Label> {
     labels
 }
 
+/// Remove jumps which don't do anything:
+/// 1. Branches forward nowhere
+/// 2. Branches out of the end of if statements (but only one layer)
 pub fn clean_dead_jumps(code: &mut Vec<Instr>) {
     Instr::visit_mut_all_blocks_post(code, &mut |block| {
         let mut i = 0;
@@ -71,6 +76,7 @@ pub fn clean_dead_jumps(code: &mut Vec<Instr>) {
     });
 }
 
+/// Replace if x { X; return } else { Y } with if x { X; return } Y and equivalents
 pub fn clean_else_to_fallthrough(code: &mut Vec<Instr>) {
     Instr::visit_mut_all_blocks_post(code, &mut |block| {
         let mut i = 0;
@@ -90,6 +96,7 @@ pub fn clean_else_to_fallthrough(code: &mut Vec<Instr>) {
     });
 }
 
+/// Replace (==).(a cmp b) with a == b, etc
 pub fn reduce_cmp(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
@@ -108,6 +115,7 @@ pub fn reduce_cmp(code: &mut Vec<Instr>) {
     }
 }
 
+/// Replace e.g. (x - a) - b with x - (a + b) etc
 pub fn reduce_binop_assoc(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
@@ -129,6 +137,7 @@ pub fn reduce_binop_assoc(code: &mut Vec<Instr>) {
     }
 }
 
+/// Replace a + 0 with a, etc
 pub fn reduce_binop_identities(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
@@ -144,6 +153,7 @@ pub fn reduce_binop_identities(code: &mut Vec<Instr>) {
     }
 }
 
+/// Replace the constants a + b with the value of a + b
 pub fn reduce_binop_constants(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
@@ -162,6 +172,7 @@ pub fn reduce_binop_constants(code: &mut Vec<Instr>) {
     }
 }
 
+/// Remove a = a
 pub fn clean_self_writes(code: &mut Vec<Instr>) {
     let mut i = 0;
     while i < code.len() {
@@ -173,6 +184,7 @@ pub fn clean_self_writes(code: &mut Vec<Instr>) {
     }
 }
 
+/// Replace a + x with x + a for constants x
 pub fn move_constants_right(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
@@ -187,6 +199,7 @@ pub fn move_constants_right(code: &mut Vec<Instr>) {
     }
 }
 
+/// Replace if x {} else { A } with if !x { A }
 pub fn clean_empty_true_then(code: &mut Vec<Instr>) {
     Instr::visit_mut_all(code, &mut |instr|
         if
@@ -199,6 +212,7 @@ pub fn clean_empty_true_then(code: &mut Vec<Instr>) {
     );
 }
 
+/// Remove the return; B from A; return; B
 pub fn clean_unreachable(code: &mut Vec<Instr>) {
     Instr::visit_mut_all_blocks_post(code, &mut |instrs| {
         let mut i = 0;
@@ -223,7 +237,8 @@ pub fn clean_unreachable(code: &mut Vec<Instr>) {
     });
 }
 
-pub fn generate_else_if(code: &mut Vec<Instr>) {
+/// Replace if x { A; jump L1 } if y { B } with if x { A; jump L1 } else if y { B }
+pub fn generate_elseif(code: &mut Vec<Instr>) {
     Instr::visit_mut_all_blocks_post(code, &mut |instrs| {
         let mut i = instrs.len();
         while i > 0 {
@@ -307,10 +322,12 @@ fn clean_dead_fallthrough_jumps_in(code: &mut Vec<Instr>, end: &mut HashSet<Labe
     }
 }
 
+/// Remove the if from x { if y { jump L1 } }; L1:. This is a more advanced form of clean_dead_jumps
 pub fn clean_dead_fallthrough_jumps(code: &mut Vec<Instr>) {
     clean_dead_fallthrough_jumps_in(code, &mut HashSet::new())
 }
 
+/// Replace return x; with return; Not sound unless already prove to be.
 pub fn demote_to_return_void(blocks: &mut [CfgBlock]) {
     for block in blocks {
         Instr::visit_mut_all(&mut block.code, &mut |instr| if let Instr::Return { value, .. } = instr {

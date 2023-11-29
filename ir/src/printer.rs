@@ -83,7 +83,7 @@ fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeF
             if config.lit_types {
                 write!(f, "({typ}).")?;
             }
-            write!(f, "{n}")?;
+            write!(f, "0x{n:x}")?;
         }
         Expr::BinOp(op, l, r) => {
             let new_prec = match op {

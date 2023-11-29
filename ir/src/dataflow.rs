@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{Cfg, Instr, Name, Binding, Expr, CfgBlock, Abi, FuncArg, Typ};
 
+/// Determine if there is any control flow path in which the given name is read before it is written
 fn might_read_before_write(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock], name: Name, node: usize, idx: usize, visited: &mut HashSet<usize>) -> bool {
     if !visited.insert(node) {
         return false
@@ -151,6 +152,11 @@ fn inline_single_use_pairs_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], nod
     }
 }
 
+/// Reduce a = b; x = a into x = b when
+/// - The two statements are in the same basic block
+/// - There is exactly one read of a before it is next written to (unless b is a name, in which case
+/// every occurrence of a will be replaced by b in this basic block)
+/// - None of the variables read in b are changed between a and b
 pub fn inline_single_use_pairs(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     for i in 0..blocks.len() {
         inline_single_use_pairs_in(abi, cfg, blocks, i)
@@ -178,6 +184,7 @@ fn no_remove_inline_strings_in(blocks: &mut [CfgBlock], node: usize) {
     }
 }
 
+/// Inline string constant assignments
 pub fn no_remove_inline_strings(blocks: &mut [CfgBlock]) {
     for i in 0..blocks.len() {
         no_remove_inline_strings_in(blocks, i)
@@ -213,6 +220,7 @@ fn remove_dead_writes_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: us
     }
 }
 
+/// Remove writes where the value is never read
 pub fn remove_dead_writes(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock]) {
     for i in 0..blocks.len() {
         remove_dead_writes_in(abi, cfg, blocks, i)
@@ -250,6 +258,7 @@ fn demote_dead_calls_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usi
     }
 }
 
+/// Replace x = a() with a() if x is never read
 pub fn demote_dead_calls(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], sometimes_read: &mut HashSet<Name>) {
     for i in 0..blocks.len() {
         demote_dead_calls_in(abi, cfg, blocks, i, sometimes_read)

@@ -1,3 +1,4 @@
+__stack_chk_fail,0,F
 abort,0,F
 abs,1,F
 acos,1,F

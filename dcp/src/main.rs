@@ -176,7 +176,7 @@ fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, St
                 ));
                 long_names.insert(*name, stdlib_names.get(name).unwrap().to_string());
             } else {
-                todo!("Unknown PLT entries")
+                todo!("Unknown PLT entry: {name}")
             }
         }
     }
@@ -308,18 +308,21 @@ fn main() {
             continue
         }
 
-        if args.has_pass(INLINE) {
-            ir::inline_single_use_pairs(&x86_abi, &cfg, &mut blocks[..]);
-            ir::remove_dead_writes(&x86_abi, &cfg, &mut blocks[..]);
-            ir::demote_dead_calls(&x86_abi, &cfg, &mut blocks[..], &mut HashSet::new());
-        }
+        // reduce_cmp can change ref-counts, so need to run again
+        for _ in 0..2 {
+            if args.has_pass(INLINE) {
+                ir::inline_single_use_pairs(&x86_abi, &cfg, &mut blocks[..]);
+                ir::remove_dead_writes(&x86_abi, &cfg, &mut blocks[..]);
+                ir::demote_dead_calls(&x86_abi, &cfg, &mut blocks[..], &mut HashSet::new());
+            }
 
-        for block in blocks.iter_mut() {
-            ir::reduce_cmp(&mut block.code);
-            ir::reduce_binop_assoc(&mut block.code);
-            ir::reduce_binop_constants(&mut block.code);
-            ir::reduce_binop_identities(&mut block.code);
-            ir::clean_self_writes(&mut block.code);
+            for block in blocks.iter_mut() {
+                ir::reduce_cmp(&mut block.code);
+                ir::reduce_binop_assoc(&mut block.code);
+                ir::reduce_binop_constants(&mut block.code);
+                ir::reduce_binop_identities(&mut block.code);
+                ir::clean_self_writes(&mut block.code);
+            }
         }
 
         'end: {

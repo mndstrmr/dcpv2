@@ -64,12 +64,14 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
         }
     }
 
-    let mut plt = None;
-    if let Some(header) = res.section_header_by_name(".plt")? {
-        plt = Some(DataBlock {
-            base_addr: header.sh_addr,
-            data: res.section_data(&header)?.0.to_vec()
-        });
+    let mut plt_blocks = Vec::new();
+    for name in &[".plt", ".plt.got", ".plt.sec"] {
+        if let Some(header) = res.section_header_by_name(name)? {
+            plt_blocks.extend(Some(DataBlock {
+                base_addr: header.sh_addr,
+                data: res.section_data(&header)?.0.to_vec()
+            }));
+        }
     }
 
     let mut rodata = None;
@@ -82,7 +84,7 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
 
     Ok(RawBinary {
         arch,
-        plt,
+        plt: plt_blocks,
         rodata,
         base_addr,
         code,

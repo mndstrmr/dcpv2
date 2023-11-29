@@ -10,7 +10,7 @@ pub enum Arch {
 pub struct RawBinary {
     pub arch: Arch,
     pub base_addr: u64,
-    pub plt: Option<DataBlock>,
+    pub plt: Vec<DataBlock>,
     pub rodata: Option<DataBlock>,
     pub code: Vec<u8>,
     pub meta: Vec<BinMeta>
@@ -50,7 +50,7 @@ pub enum RegionType {
 #[derive(Debug)]
 pub struct FuncsBinary {
     pub arch: Arch,
-    pub plt: Option<DataBlock>,
+    pub plt: Vec<DataBlock>,
     pub rodata: Option<DataBlock>,
     pub funcs: Vec<BinFunc>,
     pub meta: Vec<BinMeta>

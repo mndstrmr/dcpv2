@@ -224,11 +224,10 @@ impl Display for Binding {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
     Add, Sub, Mul, Div,
     Lsl, Lsr, Asr,
-    Cmp,
     Eq, Ne, Lt, Le, Gt, Ge,
     And, Or, Xor
 }
@@ -240,7 +239,6 @@ impl Display for BinOp {
             BinOp::Sub => f.write_char('-'),
             BinOp::Mul => f.write_char('*'),
             BinOp::Div => f.write_char('/'),
-            BinOp::Cmp => f.write_str("cmp"),
             BinOp::Eq => f.write_str("=="),
             BinOp::Ne => f.write_str("!="),
             BinOp::Lt => f.write_str("<"),
@@ -257,7 +255,7 @@ impl Display for BinOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MonOp {
     Neg,
     Not,
@@ -279,7 +277,7 @@ impl Display for MonOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expr {
     Name(Name),
     Lit(i64, Typ),

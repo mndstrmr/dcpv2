@@ -36,6 +36,8 @@ const R15: Name = Name(15, Namespace::Register);
 
 const FLAGS: Name = Name(16, Namespace::Register);
 
+const FS: Name = Name(17, Namespace::Register);
+
 pub fn frame_ptr_name() -> Name {
     RBP
 }
@@ -65,6 +67,7 @@ pub fn name_map() -> HashMap<Name, String> {
     map.insert(R9, "r9".to_string());
     map.insert(RAX, "rax".to_string());
     map.insert(RBX, "rbx".to_string());
+    map.insert(FS, "fs".to_string());
     map
 }
 
@@ -112,7 +115,11 @@ fn mem_addr(mem: &X86OpMem, addr: u64) -> Expr {
         ));
     }
 
-    addr
+    match mem.segment().0 as u32 {
+        0 | arch::x86::X86Reg::X86_REG_DS => addr,
+        arch::x86::X86Reg::X86_REG_FS => Expr::BinOp(BinOp::Add, Box::new(Expr::Name(FS)), Box::new(addr)),
+        seg => panic!("Unknown segment {seg}")
+    }
 }
 
 fn op_expr(op: &arch::x86::X86Operand, typ: Typ, addr: u64) -> Expr {
@@ -159,40 +166,45 @@ fn op_typ(op: &arch::x86::X86Operand) -> Typ {
     }
 }
 
-pub fn gen_plt_data(plt: Option<&DataBlock>, plt_deref_map: &HashMap<u64, Name>) -> Result<HashMap<u64, Name>, X86Error> {
+pub fn gen_plt_data(plt: &[DataBlock], plt_deref_map: &HashMap<u64, Name>) -> Result<HashMap<u64, Name>, X86Error> {
     let cs = arch::BuildsCapstone::mode(Capstone::new().x86(), arch::x86::ArchMode::Mode64)
         .syntax(arch::x86::ArchSyntax::Att)
         .detail(true)
         .build()?;
 
     let mut map = HashMap::new();
-    let Some(plt) = plt else {
-        return Ok(map)
-    };
 
-    for instr in cs.disasm_all(&plt.data, plt.base_addr)?.as_ref() {
-        let opcode = arch::x86::X86Insn::from(instr.id().0);
-        if opcode == arch::x86::X86Insn::X86_INS_JMP {
-            let detail: InsnDetail = cs.insn_detail(&instr)?;
-            let arch_detail: arch::ArchDetail = detail.arch_detail();
-            let ops = arch_detail.operands();
+    for block in plt {
+        let mut fallthroughs = Vec::new();
+        for instr in cs.disasm_all(&block.data, block.base_addr)?.as_ref() {
+            let opcode = arch::x86::X86Insn::from(instr.id().0);
+            if opcode == arch::x86::X86Insn::X86_INS_JMP {
+                let detail: InsnDetail = cs.insn_detail(&instr)?;
+                let arch_detail: arch::ArchDetail = detail.arch_detail();
+                let ops = arch_detail.operands();
 
-            let arch::ArchOperand::X86Operand(op) = &ops[0] else {
-                panic!("plt instr not x86 op")
-            };
+                let arch::ArchOperand::X86Operand(op) = &ops[0] else {
+                    panic!("plt instr not x86 op")
+                };
 
-            let arch::x86::X86OperandType::Mem(mem) = op.op_type else {
-                continue
-            };
+                let arch::x86::X86OperandType::Mem(mem) = op.op_type else {
+                    continue
+                };
 
-            assert_eq!(mem.base().0 as u32, arch::x86::X86Reg::X86_REG_RIP as u32);
+                assert_eq!(mem.base().0 as u32, arch::x86::X86Reg::X86_REG_RIP as u32);
 
-            let addr = instr.address() as i64 + mem.disp() + instr.len() as i64;
-            let Some(name) = plt_deref_map.get(&(addr as u64)) else {
-                continue
-            };
+                let addr = instr.address() as i64 + mem.disp() + instr.len() as i64;
+                let Some(name) = plt_deref_map.get(&(addr as u64)) else {
+                    continue
+                };
 
-            map.insert(instr.address(), *name);
+                for addr in fallthroughs.drain(..) {
+                    map.insert(addr, *name);
+                }
+                map.insert(instr.address(), *name);
+            } else {
+                fallthroughs.push(instr.address());
+            }
         }
     }
 
@@ -334,13 +346,24 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     dest: op_binding(op(1), typ, instr_rip),
                     src: Expr::BinOp(binop, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
                 });
+                func.code.push(Instr::Store {
+                    loc, typ,
+                    dest: Binding::Name(FLAGS),
+                    src: op_expr(op(1), typ, instr_rip)
+                });
             }
             arch::x86::X86Insn::X86_INS_CMP | arch::x86::X86Insn::X86_INS_TEST => {
+                let binop = match opcode {
+                    arch::x86::X86Insn::X86_INS_CMP => BinOp::Sub,
+                    arch::x86::X86Insn::X86_INS_TEST => BinOp::And,
+                    _ => unreachable!()
+                };
+
                 let typ = op_typ(op(0));
                 func.code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Name(FLAGS),
-                    src: Expr::BinOp(BinOp::Cmp, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
+                    src: Expr::BinOp(binop, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
                 });
             }
             arch::x86::X86Insn::X86_INS_JL | arch::x86::X86Insn::X86_INS_JLE |

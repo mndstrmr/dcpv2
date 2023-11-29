@@ -94,7 +94,6 @@ fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeF
                 BinOp::And => 2,
                 BinOp::Xor => 3,
                 BinOp::Or => 1,
-                BinOp::Cmp => 4,
                 BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Ge | BinOp::Gt => 4,
                 BinOp::Asr | BinOp::Lsl | BinOp::Lsr => 8,
             };

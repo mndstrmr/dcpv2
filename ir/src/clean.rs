@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{Instr, Label, Expr, BinOp, MonOp, Binding, CfgBlock};
+use crate::{Instr, Label, Expr, BinOp, MonOp, Binding, CfgBlock, Typ};
 
 /// Return the set of labels which are branches to in the given code
 pub fn used_labels(code: &[Instr]) -> HashSet<Label> {
@@ -96,18 +96,26 @@ pub fn clean_else_to_fallthrough(code: &mut Vec<Instr>) {
     });
 }
 
-/// Replace (==).(a cmp b) with a == b, etc
+/// Replace (==).(a - b) with a == b, etc
 pub fn reduce_cmp(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
-            expr.visit_mut_post(&mut |e| if let Expr::MonOp(m, box Expr::BinOp(BinOp::Cmp, l, r)) = e {
-                match m {
-                    MonOp::CmpEq => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
-                    MonOp::CmpNe => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
-                    MonOp::CmpLt => *e = Expr::BinOp(BinOp::Lt, Box::new(l.take()), Box::new(r.take())),
-                    MonOp::CmpLe => *e = Expr::BinOp(BinOp::Le, Box::new(l.take()), Box::new(r.take())),
-                    MonOp::CmpGt => *e = Expr::BinOp(BinOp::Gt, Box::new(l.take()), Box::new(r.take())),
-                    MonOp::CmpGe => *e = Expr::BinOp(BinOp::Ge, Box::new(l.take()), Box::new(r.take())),
+            expr.visit_mut_post(&mut |e| if let Expr::MonOp(m, box Expr::BinOp(c, l, r)) = e {
+                println!("{:?} {:?}", m, c);
+
+                match (*m, *c) {
+                    (MonOp::CmpEq, BinOp::And) if *l == *r && !l.might_side_effect() => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+                    (MonOp::CmpNe, BinOp::And) if *l == *r && !l.might_side_effect() => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+
+                    (MonOp::CmpEq, BinOp::Xor) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
+                    (MonOp::CmpNe, BinOp::Xor) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
+
+                    (MonOp::CmpEq, BinOp::Sub) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
+                    (MonOp::CmpNe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
+                    (MonOp::CmpLt, BinOp::Sub) => *e = Expr::BinOp(BinOp::Lt, Box::new(l.take()), Box::new(r.take())),
+                    (MonOp::CmpLe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Le, Box::new(l.take()), Box::new(r.take())),
+                    (MonOp::CmpGt, BinOp::Sub) => *e = Expr::BinOp(BinOp::Gt, Box::new(l.take()), Box::new(r.take())),
+                    (MonOp::CmpGe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Ge, Box::new(l.take()), Box::new(r.take())),
                     _ => {}
                 }
             });

@@ -203,7 +203,7 @@ impl Instr {
             Instr::Expr { expr, .. } => f(expr),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
             Instr::Label { .. } | Instr::Branch { cond: None, .. } |
-            Instr::Return { value: None, .. }=> {}
+            Instr::Return { value: None, .. } => {}
         })
     }
 
@@ -222,7 +222,7 @@ impl Instr {
             Instr::Expr { expr, .. } => f(expr),
             Instr::Loop { .. } | Instr::Break(_) | Instr::Continue(_) |
             Instr::Label { .. } | Instr::Branch { cond: None, .. } |
-            Instr::Return { value: None, .. }=> {}
+            Instr::Return { value: None, .. } => {}
         })
     }
 

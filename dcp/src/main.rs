@@ -141,7 +141,7 @@ impl FunctionSet {
     }
 }
 
-fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, String>, main_name: &str) -> FunctionSet {
+fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, String>, main_name: &str, global_idx: &mut u32) -> FunctionSet {
     let mut funcs = FunctionSet {
         func_locations: HashMap::new(),
         func_args: HashMap::new(),
@@ -151,22 +151,20 @@ fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, St
 
     let (stdlib_arities, stdlib_names, stdlib_rev_names, stdlib_variadic) = parse_stdlib();
 
-    let mut global_idx = 0;
-
     for meta in &bin.meta {
         if let bin::BinMeta::Name { location, name } = meta {
             if *location == 0 {
                 continue
             }
 
-            let short_name = ir::Name(global_idx, ir::Namespace::Global);
+            let short_name = ir::Name(*global_idx, ir::Namespace::Global);
             if *name == main_name {
                 funcs.entry_func = Some(short_name);
             }
             funcs.func_locations.insert(*location, short_name);
             long_names.insert(short_name, name.clone());
 
-            global_idx += 1;
+            *global_idx += 1;
         } else if let bin::BinMeta::PltElement { location, name } = meta {
             if let Some(name) = stdlib_rev_names.get(name.as_str()) {
                 funcs.got.insert(*location, *name);
@@ -187,7 +185,7 @@ fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, St
 fn should_attempt(func_name: &str) -> bool {
     for name in &[
         "_start", "deregister_tm_clones", "register_tm_clones",  "frame_dummy",
-        "__do_global_dtors_aux", "__libc_csu_init", "__libc_csu_fini"
+        "__do_global_dtors_aux", "__libc_csu_init", "__libc_csu_fini", "_dl_relocate_static_pie"
     ] {
         if func_name == *name {
             return false
@@ -219,13 +217,21 @@ fn main() {
     let mut long_names = HashMap::new();
 
     let mut df_funcs = HashMap::new();
-
-    let mut symbols = get_bin_symbols(&bin, &mut long_names, &args.main);
+    let mut global_idx = 0;
+    let mut symbols = get_bin_symbols(&bin, &mut long_names, &args.main, &mut global_idx);
     let mut callgraph = symbols.entry_func.map(ir::CallGraph::new);
 
     let plt_call_map = x86::gen_plt_data(bin.plt.as_ref(), &symbols.got).expect("could not make plt data");
     for (addr, name) in plt_call_map {
         symbols.func_locations.insert(addr, name);
+    }
+
+    for func in bin.funcs.iter() {
+        if !symbols.func_locations.contains_key(&func.addr) {
+            let name = ir::Name(global_idx, ir::Namespace::Global);
+            global_idx += 1;
+            symbols.func_locations.insert(func.addr, name);
+        }
     }
 
     for func in bin.funcs.iter() {

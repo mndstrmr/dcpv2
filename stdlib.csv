@@ -159,6 +159,10 @@ quantized128,1,F
 samequantumd32,2,F
 samequantumd64,2,F
 samequantumd128,2,F
+seccomp_init,1,F
+seccomp_load,1,F
+seccomp_reset,2,F
+seccomp_rule_add,4,F
 raise,1,F
 rand,0,F
 rand_r,0,F
@@ -289,4 +293,5 @@ wmemcpy,3,F
 wmemmove,3,F
 wmemset,3,F
 wprintf,1,T
+write,3,F
 wscanf,1,T

@@ -22,7 +22,7 @@ fn explore_reachable(cfg: &Cfg, bubble: &HashSet<usize>, root: usize) -> HashSet
     reachable
 }
 
-fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cfg, root: usize) -> Vec<Instr> {
+fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, fallthrough: Option<usize>, cfg: &Cfg, root: usize) -> Vec<Instr> {
     assert!(!blocks.is_empty());
     let mut node_id = root;
     let mut code = Vec::<Instr>::new();
@@ -79,6 +79,37 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cf
                 }
                 assert_eq!(root_a, label.0);
 
+                let reachable_a = explore_reachable(cfg, bubble, root_a);
+                let reachable_b = explore_reachable(cfg, bubble, root_b);
+
+                let reachable_both = reachable_a.intersection(&reachable_b).copied().collect::<HashSet<_>>();
+
+                let true_then = reachable_a.difference(&reachable_both).copied().collect::<HashSet<_>>();
+                let false_then = reachable_b.difference(&reachable_both).copied().collect::<HashSet<_>>();
+
+                if Some(root_a) == fallthrough {
+                    let false_then_code = generate_ifs_in(blocks, &false_then, fallthrough, cfg, root_b);
+
+                    code.push(Instr::If {
+                        loc,
+                        cond: cond.not(),
+                        true_case: false_then_code,
+                        false_case: Vec::new()
+                    });
+                    break code
+                }
+
+                if Some(root_b) == fallthrough {
+                    let true_then_code = generate_ifs_in(blocks, &true_then, fallthrough, cfg, root_a);
+
+                    code.push(Instr::If {
+                        loc, cond,
+                        true_case: true_then_code,
+                        false_case: Vec::new()
+                    });
+                    break code
+                }
+
                 // Not wrong, but probably could be improved
                 if !can_branch_to(node_id, root_a) && !can_branch_to(node_id, root_b) {
                     code.push(Instr::Branch { label, cond: Some(cond), loc });
@@ -93,27 +124,6 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cf
                     node_id = root_a;
                     outgoing = cfg.outgoing_for(node_id)
                 } else {
-                    let reachable_a = explore_reachable(cfg, bubble, root_a);
-                    let reachable_b = explore_reachable(cfg, bubble, root_b);
-
-                    let reachable_both = reachable_a.intersection(&reachable_b).copied().collect::<HashSet<_>>();
-
-                    let true_then = reachable_a.difference(&reachable_both).copied().collect::<HashSet<_>>();
-                    let false_then = reachable_b.difference(&reachable_both).copied().collect::<HashSet<_>>();
-
-                    let true_then_code = generate_ifs_in(blocks, &true_then, cfg, root_a);
-                    let false_then_code = generate_ifs_in(blocks, &false_then, cfg, root_b);
-
-                    code.push(Instr::If {
-                        loc, cond,
-                        true_case: true_then_code,
-                        false_case: false_then_code
-                    });
-
-                    if reachable_both.is_empty() {
-                        break code
-                    }
-
                     let mut common_root = None;
                     for node in &reachable_both {
                         let c = cfg.incoming_for(*node).iter().filter(|x| reachable_both.contains(*x) && !cfg.is_backward_edge(**x, *node)).count();
@@ -122,7 +132,18 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cf
                         }
                     }
 
-                    code.extend(generate_ifs_in(blocks, &reachable_both, cfg, common_root.expect("Need more complex common branch root detection")));
+                    let true_then_code = generate_ifs_in(blocks, &true_then, common_root.or(fallthrough), cfg, root_a);
+                    let false_then_code = generate_ifs_in(blocks, &false_then, common_root.or(fallthrough), cfg, root_b);
+
+                    code.push(Instr::If {
+                        loc, cond,
+                        true_case: true_then_code,
+                        false_case: false_then_code
+                    });
+
+                    if !reachable_both.is_empty() {
+                        code.extend(generate_ifs_in(blocks, &reachable_both, fallthrough, cfg, common_root.expect("Need more complex common branch root detection")));
+                    }
                     break code
                 }
             },
@@ -133,7 +154,7 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, cfg: &Cf
 
 pub fn generate_ifs(blocks: &mut Vec<CfgBlock>, cfg: &Cfg) -> Vec<Instr> {
     let all = (0..blocks.len()).collect::<HashSet<_>>();
-    let instrs = generate_ifs_in(blocks, &all, cfg, cfg.root());
+    let instrs = generate_ifs_in(blocks, &all, None, cfg, cfg.root());
 
     for (b, block) in blocks.iter().enumerate() {
         if !block.code.is_empty() {

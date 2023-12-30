@@ -143,7 +143,7 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
         entry_func: None
     };
 
-    let (stdlib_arities, stdlib_names, stdlib_rev_names, stdlib_variadic) = parse_stdlib();
+    let (stdlib_arities, _stdlib_names, stdlib_rev_names, stdlib_variadic) = parse_stdlib();
 
     for meta in &bin.meta {
         if let bin::BinMeta::Name { location, name } = meta {
@@ -202,6 +202,11 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
                 *global_idx += 1;
                 // long_names.insert(short_name, main_name.clone());
             }
+        } else if let bin::BinMeta::FiniArrFunc { location } | bin::BinMeta::InitArrFunc { location } = meta {
+            funcs.func_locations.entry(*location).or_insert_with(|| {
+                *global_idx += 1;
+                ir::Name(*global_idx - 1, ir::Namespace::Global)
+            });
         }
     }
 
@@ -210,7 +215,7 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
 
 fn should_attempt(func_name: &str) -> bool {
     for name in &[
-        "_start", "deregister_tm_clones", "register_tm_clones",  "frame_dummy",
+        "deregister_tm_clones", "register_tm_clones",  "frame_dummy",
         "__do_global_dtors_aux", "__libc_csu_init", "__libc_csu_fini", "_dl_relocate_static_pie"
     ] {
         if func_name == *name {
@@ -284,6 +289,8 @@ fn main() {
         } else {
             frame = ir::Frame::new();
         }
+
+        ir::tail_call_to_call_return(&mut func.code);
 
         // Update with names of known entities
         ir::replace_names(&mut func.code, &symbols.func_locations);
@@ -362,7 +369,7 @@ fn main() {
 
             for block in blocks.iter_mut() {
                 ir::reduce_cmp(&mut block.code);
-                ir::reduce_binop_assoc(&mut block.code);
+                ir::reduce_binop_assoc_all(&mut block.code);
                 ir::reduce_binop_constants(&mut block.code);
                 ir::reduce_binop_identities(&mut block.code);
                 ir::clean_self_writes(&mut block.code);

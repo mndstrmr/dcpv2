@@ -121,29 +121,31 @@ pub fn reduce_cmp(code: &mut Vec<Instr>) {
     }
 }
 
+pub fn reduce_binop_assoc(expr: &mut Expr) {
+    expr.visit_mut_post(&mut |e| if let Expr::BinOp(op2, box Expr::BinOp(op1, l, box Expr::Lit(x2, t)), box Expr::Lit(x1, _)) = e {
+        // (l <op1> x1) <op2> x1
+        match (op1, op2) {
+            (BinOp::Sub, BinOp::Sub) => {
+                *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
+            }
+            (BinOp::Sub, BinOp::Add) if x2 <= x1 => {
+                *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 - *x2, *t)));
+            }
+            (BinOp::Sub, BinOp::Add) if x2 > x1 => {
+                *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x2 - *x1, *t)));
+            }
+            (BinOp::Add, BinOp::Add) => {
+                *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
+            }
+            _ => {}
+        }
+    });
+}
+
 /// Replace e.g. (x - a) - b with x - (a + b) etc
-pub fn reduce_binop_assoc(code: &mut Vec<Instr>) {
+pub fn reduce_binop_assoc_all(code: &mut Vec<Instr>) {
     for instr in code {
-        instr.visit_top_exprs_mut(&mut |expr| {
-            expr.visit_mut_post(&mut |e| if let Expr::BinOp(op2, box Expr::BinOp(op1, l, box Expr::Lit(x2, t)), box Expr::Lit(x1, _)) = e {
-                // (l <op1> x1) <op2> x1
-                match (op1, op2) {
-                    (BinOp::Sub, BinOp::Sub) => {
-                        *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
-                    }
-                    (BinOp::Sub, BinOp::Add) if x2 <= x1 => {
-                        *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 - *x2, *t)));
-                    }
-                    (BinOp::Sub, BinOp::Add) if x2 > x1 => {
-                        *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x2 - *x1, *t)));
-                    }
-                    (BinOp::Add, BinOp::Add) => {
-                        *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
-                    }
-                    _ => {}
-                }
-            });
-        });
+        instr.visit_top_exprs_mut(&mut reduce_binop_assoc);
     }
 }
 
@@ -337,11 +339,31 @@ pub fn clean_dead_fallthrough_jumps(code: &mut Vec<Instr>) {
     clean_dead_fallthrough_jumps_in(code, &mut HashSet::new())
 }
 
-/// Replace return x; with return; Not sound unless already prove to be.
+/// Replace return x; with return;
 pub fn demote_to_return_void(blocks: &mut [CfgBlock]) {
     for block in blocks {
-        Instr::visit_mut_all(&mut block.code, &mut |instr| if let Instr::Return { value, .. } = instr {
-            *value = None;
+        Instr::visit_mut_all_blocks_post(&mut block.code, &mut |block| {
+            let mut i = 0;
+            while i < block.len() {
+                let Instr::Return { value: Some(inner), typ, loc } = &mut block[i] else {
+                    i += 1;
+                    continue
+                };
+
+                if !inner.contains_call() {
+                    block[i] = Instr::Return { value: None, loc: *loc, typ: *typ };
+                    i += 1;
+                    continue
+                }
+
+                let expr = inner.take();
+                let loc = *loc;
+                let typ = *typ;
+                block.insert(i, Instr::Expr { expr, loc });
+                block[i + 1] = Instr::Return { value: None, loc, typ };
+                i += 2;
+                continue
+            }
         });
     }
 }

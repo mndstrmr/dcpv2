@@ -39,6 +39,12 @@ pub enum BinMeta {
     },
     Entry {
         location: u64
+    },
+    InitArrFunc {
+        location: u64
+    },
+    FiniArrFunc {
+        location: u64
     }
 }
 

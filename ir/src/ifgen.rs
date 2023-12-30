@@ -136,7 +136,11 @@ pub fn generate_ifs(blocks: &mut Vec<CfgBlock>, cfg: &Cfg) -> Vec<Instr> {
     let instrs = generate_ifs_in(blocks, &all, cfg, cfg.root());
 
     for (b, block) in blocks.iter().enumerate() {
-        assert!(block.code.is_empty(), "Block {b} not empty");
+        if !block.code.is_empty() {
+            eprintln!("Block {b} not empty @ {:x}:", block.code[0].loc().addr);
+            Instr::dump_block(&block.code);
+            println!();
+        }
     }
 
     instrs

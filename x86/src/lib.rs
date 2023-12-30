@@ -440,7 +440,7 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
                 });
             }
             arch::x86::X86Insn::X86_INS_NOP | arch::x86::X86Insn::X86_INS_ENDBR64 => {}
-            arch::x86::X86Insn::X86_INS_HLT => {} // FIXME: ???
+            arch::x86::X86Insn::X86_INS_HLT => code.push(Instr::Return { value: None, loc, typ: Typ::N64 }), // FIXME: ???
             _ => panic!("Instruction '{}' not translated", i)
         }
     }

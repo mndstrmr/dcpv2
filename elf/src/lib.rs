@@ -4,7 +4,8 @@ use std::path::Path;
 
 use bin::{RawBinary, Arch, BinMeta, DataBlock};
 use elf::{ElfBytes, abi::{EM_X86_64}, endian::AnyEndian};
-use elf::abi::STT_FUNC;
+use elf::abi::{DT_INIT_ARRAY, DT_INIT_ARRAYSZ, DT_FINI_ARRAY, DT_FINI_ARRAYSZ, STT_FUNC};
+use elf::endian::EndianParse;
 
 #[derive(Debug)]
 pub enum ElfError {
@@ -17,6 +18,19 @@ impl From<elf::ParseError> for ElfError {
     fn from(value: elf::ParseError) -> Self {
         ElfError::Parse(format!("{value}"))
     }
+}
+
+fn vaddr_to_data<'a>(vaddr: u64, size: u64, res: &ElfBytes<AnyEndian>, data: &'a [u8]) -> Result<&'a [u8], ElfError> {
+    for segment in res.segments().ok_or_else(|| ElfError::Parse("no segments".to_string()))? {
+        if segment.p_vaddr <= vaddr && vaddr < segment.p_vaddr + segment.p_filesz {
+            assert!(vaddr + size <= segment.p_vaddr + segment.p_filesz);
+
+            let start = (segment.p_offset + (vaddr - segment.p_vaddr)) as usize;
+            return Ok(&data[start..start + size as usize])
+        }
+    }
+
+    Err(ElfError::Parse(format!("virtual addr 0x{vaddr:x} not mapped")))
 }
 
 pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
@@ -86,6 +100,47 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
             base_addr: header.sh_addr,
             data: res.section_data(&header)?.0.to_vec()
         });
+    }
+
+    if let Some(dynamic) = res.dynamic()? {
+        let mut init_array = None;
+        let mut init_array_sz = None;
+        let mut fini_array = None;
+        let mut fini_array_sz = None;
+
+        for entry in dynamic {
+            match entry.d_tag {
+                DT_INIT_ARRAY => init_array = Some(entry.d_ptr()),
+                DT_INIT_ARRAYSZ => init_array_sz = Some(entry.d_val()),
+                DT_FINI_ARRAY => fini_array = Some(entry.d_ptr()),
+                DT_FINI_ARRAYSZ => fini_array_sz = Some(entry.d_val()),
+                _ => {}
+            }
+        }
+
+        if let Some(init_array) = init_array && let Some(init_array_sz) = init_array_sz {
+            for i in 0..init_array_sz / 8 {
+                meta.push(BinMeta::InitArrFunc {
+                    location: if res.ehdr.endianness.is_little() {
+                        u64::from_le_bytes(vaddr_to_data(init_array + i*8, 8, &res, &data)?.try_into().unwrap())
+                    } else {
+                        u64::from_be_bytes(vaddr_to_data(init_array + i*8, 8, &res, &data)?.try_into().unwrap())
+                    }
+                })
+            }
+        }
+
+        if let Some(fini_array) = fini_array && let Some(fini_array_sz) = fini_array_sz {
+            for i in 0..fini_array_sz / 8 {
+                meta.push(BinMeta::FiniArrFunc {
+                    location: if res.ehdr.endianness.is_little() {
+                        u64::from_le_bytes(vaddr_to_data(fini_array + i*8, 8, &res, &data)?.try_into().unwrap())
+                    } else {
+                        u64::from_be_bytes(vaddr_to_data(fini_array + i*8, 8, &res, &data)?.try_into().unwrap())
+                    }
+                })
+            }
+        }
     }
 
     Ok(RawBinary {

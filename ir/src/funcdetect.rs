@@ -20,12 +20,15 @@ pub fn gen_funcs(mut code: Vec<Instr>, known_starts: &HashMap<u64, Name>, global
     }
 
     let mut vec: Vec<_> = func_starts.into_iter().collect();
-    vec.sort_by(|a, b| a.0.cmp(&b.0));
+    vec.sort_by(|a, b| a.0.cmp(&b.0).reverse());
+    while code[0].loc().addr > vec[vec.len() - 1].0 {
+        vec.pop();
+    }
 
     let mut funcs = Vec::new();
-    'outer: for j in 0..vec.len() - 1 {
+    'outer: for j in (1..vec.len()).rev() {
         for i in 0..code.len() {
-            if code[i].loc().addr == vec[j + 1].0 {
+            if code[i].loc().addr == vec[j - 1].0 {
                 funcs.push(Func {
                     code: code.drain(0..i).collect(),
                     addr: vec[j].0,
@@ -33,15 +36,14 @@ pub fn gen_funcs(mut code: Vec<Instr>, known_starts: &HashMap<u64, Name>, global
                     args: vec![],
                     ret: None
                 });
-                *global_idx += 1;
                 continue 'outer
             }
         }
     }
     funcs.push(Func {
         code: code.drain(..).collect(),
-        addr: vec.last().unwrap().0,
-        short_name: vec.last().unwrap().1,
+        addr: vec.first().unwrap().0,
+        short_name: vec.first().unwrap().1,
         args: vec![],
         ret: None
     });

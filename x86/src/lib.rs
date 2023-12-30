@@ -49,6 +49,13 @@ pub fn caller_read() -> HashSet<Name> {
     set
 }
 
+pub fn called_read() -> HashSet<Name> {
+    let mut set = HashSet::new();
+    set.insert(RBP);
+    set.insert(RSP);
+    set
+}
+
 pub fn func_args() -> Vec<Name> {
     vec![
         RDI, RSI, RDX, RCX, R8, R9
@@ -152,7 +159,10 @@ fn op_binding(op: &arch::x86::X86Operand, typ: Typ, addr: u64) -> Binding {
 fn op_label(op: &arch::x86::X86Operand) -> Label {
     match op.op_type {
         arch::x86::X86OperandType::Imm(n) => Label(n as usize),
-        _ => panic!("Not immediate")
+        _ => {
+            eprintln!("Warning: Non-immediate label: {op:?}");
+            Label(usize::MAX)
+        }
     }
 }
 
@@ -393,11 +403,27 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
                 });
             }
             arch::x86::X86Insn::X86_INS_JMP => {
-                code.push(Instr::Branch {
-                    loc,
-                    label: op_label(op(0)),
-                    cond: None
-                });
+                match op(0).op_type {
+                    arch::x86::X86OperandType::Imm(n) => code.push(Instr::Branch {
+                        loc,
+                        label: Label(n as usize),
+                        cond: None
+                    }),
+                    _ => {
+                        // FIXME: Assuming tail call for now
+                        // FIXME: Done as store then return, since return-call is not really supported by ir::calls
+                        code.push(Instr::Store {
+                            loc, typ: Typ::N64,
+                            dest: Binding::Name(RAX),
+                            src: Expr::Call(Box::new( op_expr(op(0), Typ::N64, instr_rip)), vec![])
+                        });
+                        code.push(Instr::Return {
+                            loc,
+                            typ: Typ::N64,
+                            value: Some(Expr::Name(RAX))
+                        })
+                    }
+                }
             }
             arch::x86::X86Insn::X86_INS_CALL => {
                 code.push(Instr::Store {

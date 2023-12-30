@@ -102,8 +102,8 @@ pub fn reduce_cmp(code: &mut Vec<Instr>) {
         instr.visit_top_exprs_mut(&mut |expr| {
             expr.visit_mut_post(&mut |e| if let Expr::MonOp(m, box Expr::BinOp(c, l, r)) = e {
                 match (*m, *c) {
-                    (MonOp::CmpEq, BinOp::And) if *l == *r && !l.might_side_effect() => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
-                    (MonOp::CmpNe, BinOp::And) if *l == *r && !l.might_side_effect() => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+                    (MonOp::CmpEq, BinOp::And) if *l == *r && !l.contains_call() => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+                    (MonOp::CmpNe, BinOp::And) if *l == *r && !l.contains_call() => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
 
                     (MonOp::CmpEq, BinOp::Xor) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
                     (MonOp::CmpNe, BinOp::Xor) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
@@ -126,7 +126,11 @@ pub fn reduce_binop_assoc(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
             expr.visit_mut_post(&mut |e| if let Expr::BinOp(op2, box Expr::BinOp(op1, l, box Expr::Lit(x2, t)), box Expr::Lit(x1, _)) = e {
+                // (l <op1> x1) <op2> x1
                 match (op1, op2) {
+                    (BinOp::Sub, BinOp::Sub) => {
+                        *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
+                    }
                     (BinOp::Sub, BinOp::Add) if x2 <= x1 => {
                         *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 - *x2, *t)));
                     }

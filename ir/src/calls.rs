@@ -1,18 +1,44 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::{CfgBlock, Expr, Instr, Name, Abi, format_string_arg_count};
+use crate::{CfgBlock, Expr, Instr, Name, Abi, format_string_arg_count, FuncArg, Cfg};
+use crate::dataflow::did_controlled_write;
 
-pub fn insert_args(abi: &Abi, blocks: &mut [CfgBlock], funcs: &HashMap<Name, (usize, bool)>) {
-    for block in blocks {
-        Instr::visit_mut_all(&mut block.code, &mut |instr| {
-            instr.visit_top_exprs_mut(&mut |e| {
-                e.visit_mut_post(&mut |expr| if let Expr::Call(box Expr::Name(name), args) = expr && args.is_empty() {
-                    if let Some((arg_count, _)) = funcs.get(name) {
-                        args.extend(abi.func_args[0..*arg_count].iter().map(|x| Expr::Name(*x)));
-                    }
-                });
-            });
-        });
+pub fn insert_args(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], own_args: &[FuncArg], funcs: &HashMap<Name, (usize, bool)>) {
+    let mut b = 0;
+    while b < blocks.len() {
+        let mut c = 0;
+        while c < blocks[b].code.len() {
+            let Instr::Store { src: Expr::Call(box f, args), .. } = &mut blocks[b].code[c] else {
+                c += 1;
+                continue
+            };
+
+            if !args.is_empty() {
+                // Already handled somewhere perhaps
+                c += 1;
+                continue
+            }
+
+            if let Expr::Name(name) = f && let Some((arg_count, _)) = funcs.get(name) {
+                args.extend(abi.func_args[0..*arg_count].iter().map(|x| Expr::Name(*x)));
+                c += 1;
+                continue
+            }
+
+            let mut i = 0;
+            while i < abi.func_args.len() && did_controlled_write(abi, cfg, blocks, own_args, abi.func_args[i], b, c, &mut HashSet::new()) {
+                i += 1
+            }
+
+            let Instr::Store { src: Expr::Call(_, args), .. } = &mut blocks[b].code[c] else {
+                unreachable!()
+            };
+
+            args.extend(abi.func_args[0..i].iter().map(|x| Expr::Name(*x)));
+            c += 1;
+        }
+
+        b += 1;
     }
 }
 

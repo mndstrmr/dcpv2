@@ -1,8 +1,11 @@
-int f() {
-    return 5;
-}
+int f(int x);
 
 int main() {
-    int(*x)() = f;
-    return x();
+    int a = 4;
+    int(*x)(int y) = f;
+    return x(a);
+}
+
+int f(int x) {
+    return x + 5;
 }

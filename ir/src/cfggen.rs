@@ -79,6 +79,8 @@ pub fn drain_code_to_cfg(code: &mut Vec<Instr>) -> (Vec<CfgBlock>, Cfg) {
         cfg.add_edge(b, b + 1);
     }
 
+    assert!(code.is_empty());
+
     (blocks, cfg)
 }
 

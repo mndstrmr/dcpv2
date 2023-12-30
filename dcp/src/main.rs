@@ -151,7 +151,17 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
                 continue
             }
 
+            // if *name == main_name && let Some(entry_func) = funcs.entry_func {
+            //     assert!(!long_names.contains_key(&entry_func));
+            //     long_names.insert(entry_func, name.clone());
+            //     assert_eq!(funcs.func_locations.get(location), Some(&entry_func));
+            //     continue
+            // }
+
             let short_name = ir::Name(*global_idx, ir::Namespace::Global);
+            // FIXME: If we already have an entry_func as indicated by the Entry bin meta, just overwrite
+            //        it with this one. Eventually we hope to be good enough to actually use _start, but
+            //        our function detection is having a bad time with it at the moment.
             if *name == main_name {
                 funcs.entry_func = Some(short_name);
             }
@@ -160,18 +170,26 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
 
             *global_idx += 1;
         } else if let bin::BinMeta::PltElement { location, name } = meta {
-            if let Some(name) = stdlib_rev_names.get(name.as_str()) {
-                funcs.got.insert(*location, *name);
-                funcs.func_args.insert(*name, (
-                    *stdlib_arities.get(name).unwrap(),
-                    stdlib_variadic.contains(name)
-                ));
-                long_names.insert(*name, stdlib_names.get(name).unwrap().to_string());
-            } else {
-                todo!("Unknown PLT entry: {name}")
-            }
+            let short_name = match stdlib_rev_names.get(name.as_str()) {
+                Some(name) => {
+                    funcs.func_args.insert(*name, (
+                        *stdlib_arities.get(name).unwrap(),
+                        stdlib_variadic.contains(name)
+                    ));
+                    *name
+                },
+                None => {
+                    eprintln!("Warning: unrecognised PLT/GOT entry: {name}");
+                    *global_idx += 1;
+                    ir::Name(*global_idx - 1, ir::Namespace::Global)
+                }
+            };
+
+            funcs.got.insert(*location, short_name);
+            long_names.insert(short_name, name.clone());
         } else if let bin::BinMeta::Entry { location } = meta {
-            if funcs.entry_func.is_some() {
+            if let Some(entry_func) = funcs.entry_func {
+                assert_eq!(funcs.func_locations.get(location), Some(&entry_func));
                 continue
             }
 
@@ -215,8 +233,9 @@ fn main() {
 
     let x86_abi = ir::Abi {
         caller_read: x86::caller_read(),
+        called_read: x86::called_read(),
         fp: x86::frame_ptr_name(),
-        func_args: x86::func_args()
+        func_args: x86::func_args(),
     };
 
     let bin = elf::read(&args.path).expect("Could not open ELF");
@@ -247,6 +266,12 @@ fn main() {
             continue
         }
 
+        // println!("{:?}", func.short_name);
+        // ir::Instr::dump_block(&func.code);
+        // println!();
+
+        assert!(!func.code.is_empty());
+
         // Generate and apply stack frame
         ir::clean_dead_labels(&mut func.code);
         ir::move_constants_right(&mut func.code);
@@ -274,7 +299,7 @@ fn main() {
         cfg.generate_backward_edges();
 
         func.args = ir::infer_func_args(&x86_abi, &cfg, &blocks);
-        symbols.func_args.insert(func.short_name, (func.args.len(), false)); // TODO: Allow variadics
+        symbols.func_args.insert(func.short_name, (func.args.len(), false)); // TODO: Variadics (somehow)
 
         df_funcs.insert(func.short_name, DataFlowAnalysisFunc {
             func, cfg, blocks, frame
@@ -283,10 +308,15 @@ fn main() {
 
     // Now we know the number of arguments for each function we can update the call-sites,
     // and deal with format strings too
-    for DataFlowAnalysisFunc { blocks, .. } in df_funcs.values_mut() {
-        ir::insert_args(&x86_abi, blocks, &symbols.func_args);
+    for DataFlowAnalysisFunc { blocks, func, cfg, .. } in df_funcs.values_mut() {
+        ir::insert_args(&x86_abi, cfg, blocks, &func.args, &symbols.func_args);
         ir::no_remove_inline_strings(blocks);
         ir::update_format_string_args(&x86_abi, blocks, &symbols.func_args);
+
+        // for block in blocks {
+        //     ir::Instr::dump_block(&block.code);
+        //     println!();
+        // }
     }
 
     // We can now safely assume that if something is unused, it's actually unused, so let's
@@ -305,9 +335,7 @@ fn main() {
         }
 
         // Assume the entry function returns something
-        if let Some(entry) = symbols.entry_func {
-            sometimes_read.insert(entry);
-        }
+        sometimes_read.insert(symbols.entry_func.unwrap());
 
         for name in df_funcs.keys().cloned().collect::<Vec<_>>() {
             if !sometimes_read.contains(&name) {

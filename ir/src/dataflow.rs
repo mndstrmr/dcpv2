@@ -14,6 +14,12 @@ fn might_read_before_write(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock], name: Name
         if let Instr::Return { .. } = &blocks[node].code[stmt] {
             vars.add_all_reads(abi.caller_read.iter().copied());
         }
+
+        let mut contains_call = false;
+        blocks[node].code[stmt].visit_top_exprs(&mut |e| contains_call = contains_call || e.contains_call());
+        if contains_call && abi.called_read.contains(&name) {
+            return true
+        }
         
         if vars.reads_before_writes(name) {
             return true
@@ -29,6 +35,47 @@ fn might_read_before_write(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock], name: Name
     }
 
     false
+}
+
+/// Determine if in all control flow paths to this point the given name is written to directly, assuming name is in abi.func_args
+pub(crate) fn did_controlled_write(abi: &Abi, cfg: &Cfg, blocks: &[CfgBlock], own_args: &[FuncArg], name: Name, node: usize, idx: usize, visited: &mut HashSet<usize>) -> bool {
+    if !visited.insert(node) {
+        return false
+    }
+
+    for stmt in (0..idx).rev() {
+        let vars = blocks[node].code[stmt].vars();
+
+        if vars.writes(name) {
+            return true
+        }
+
+        let mut contains_call = false;
+        blocks[node].code[stmt].visit_top_exprs(&mut |e| contains_call = contains_call || e.contains_call());
+
+        if contains_call {
+            return false
+        }
+    }
+
+    if cfg.incoming_for(node).is_empty() {
+        // This is the entry node for this function. Name could be an argument to this function
+        for own in own_args {
+            if own.name == name {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    for incoming in cfg.incoming_for(node) {
+        if !did_controlled_write(abi, cfg, blocks, own_args, name, *incoming, blocks[*incoming].code.len(), visited) {
+            return false
+        }
+    }
+
+    true
 }
 
 fn maybe_inline_single_use_pair(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], node: usize, src: usize, dst: usize) -> bool {
@@ -67,6 +114,13 @@ fn maybe_inline_single_use_pair(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], n
                 // Dependency was overwritten
                 return false
             }
+        }
+
+        let mut contains_call = false;
+        blocks[node].code[i].visit_top_exprs(&mut |e| contains_call = contains_call || e.contains_call());
+        if contains_call && abi.called_read.contains(&name) {
+            // name not single use due to being read by a called function (.e.g the sp)
+            return false
         }
 
         if vars.reads_before_writes(name) {
@@ -121,26 +175,35 @@ fn inline_single_use_pairs_in(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], nod
             let name = *name;
 
             // Special case where the assignment is just name1 = name2
+            // If a write to name1 or name2 can be found in the following code we can replace all occurrences
+            // of name1 with name2 between the two
+            // We could also sometimes remove the name1 = name2 statement, but we will let dead writes do that
             if let Expr::Name(old_name) = src {
                 let mut j = i + 1;
                 while j < blocks[node].code.len() {
-                    if blocks[node].code[j].vars().writes(name) {
+                    if blocks[node].code[j].vars().writes(name) || blocks[node].code[j].vars().writes(*old_name) {
                         break;
                     }
                     j += 1;
                 }
 
                 if j != blocks[node].code.len() || cfg.outgoing_for(node).is_empty() {
+                    // i. name1 = name2
+                    // ...
+                    // j. name1 = ... or name2 = ...
+                    // Replace name1 with name2 in (i, j] and remove i
+
+                    let range = (i + 1)..=j.min(blocks[node].code.len() - 1);
+
                     let old_name = *old_name;
-                    blocks[node].code.remove(i);
-                    j -= 1;
-                    for k in i..=j.min(blocks[node].code.len() - 1) {
-                        blocks[node].code[k].visit_top_exprs_mut(&mut |e| {
+                    for instr in &mut blocks[node].code[range] {
+                        instr.visit_top_exprs_mut(&mut |e| {
                             e.visit_mut_post(&mut |e| if let Expr::Name(nm) = e && *nm == name {
                                 *nm = old_name;
                             });
                         });
                     }
+                    i += 1;
                     continue 'outer
                 }
             }

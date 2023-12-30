@@ -615,6 +615,7 @@ impl Frame {
 
 pub struct Abi {
     pub caller_read: HashSet<Name>,
+    pub called_read: HashSet<Name>,
     pub fp: Name,
     pub func_args: Vec<Name>
 }

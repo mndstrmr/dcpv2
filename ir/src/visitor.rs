@@ -129,7 +129,7 @@ impl Expr {
         f(self);
     }
 
-    pub fn might_side_effect(&self) -> bool {
+    pub fn contains_call(&self) -> bool {
         let mut might_side_effect = false;
         self.visit(&mut |e| if let Expr::Call(_, _) = e {
             might_side_effect = true;

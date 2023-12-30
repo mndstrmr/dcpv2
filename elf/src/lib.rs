@@ -4,6 +4,7 @@ use std::path::Path;
 
 use bin::{RawBinary, Arch, BinMeta, DataBlock};
 use elf::{ElfBytes, abi::{EM_X86_64}, endian::AnyEndian};
+use elf::abi::STT_FUNC;
 
 #[derive(Debug)]
 pub enum ElfError {
@@ -38,9 +39,14 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
     };
 
     let mut meta = Vec::new();
+
+    meta.push(BinMeta::Entry {
+        location: res.ehdr.e_entry
+    });
+
     if let Some((symtab, strtab)) = res.symbol_table()? {
         for symbol in symtab.iter() {
-            if symbol.st_name == 0 {
+            if symbol.st_name == 0 || symbol.st_symtype() != STT_FUNC {
                 continue;
             }
 

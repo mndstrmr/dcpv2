@@ -34,6 +34,9 @@ pub use string::*;
 
 pub mod visitor;
 
+mod funcdetect;
+pub use funcdetect::*;
+
 use std::{fmt::{Display, Write}, collections::{HashMap, HashSet}};
 use std::fmt::Formatter;
 use std::hash::Hash;
@@ -292,7 +295,7 @@ impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Name(name) => write!(f, "{name}"),
-            Expr::Lit(i, _) => write!(f, "{i}"),
+            Expr::Lit(i, _) => write!(f, "{i:x}"),
             Expr::BinOp(op, l, r) => write!(f, "({l} {op} {r})"),
             Expr::MonOp(op, r) => write!(f, "{op}{r}"),
             Expr::Deref(e, _) => write!(f, "*{e}"),
@@ -412,8 +415,10 @@ impl<T: Clone + Copy + PartialEq + Eq + Hash> Graph<T> {
     }
 
     pub fn add_node(&mut self, node: T) {
-        self.incoming.insert(node, HashSet::new());
-        self.outgoing.insert(node, HashSet::new());
+        if !self.incoming.contains_key(&node) {
+            self.incoming.insert(node, HashSet::new());
+            self.outgoing.insert(node, HashSet::new());
+        }
     }
 
     pub fn remove_node(&mut self, node: T) {

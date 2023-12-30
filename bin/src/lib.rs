@@ -36,6 +36,9 @@ pub enum BinMeta {
     PltElement {
         name: String,
         location: u64
+    },
+    Entry {
+        location: u64
     }
 }
 

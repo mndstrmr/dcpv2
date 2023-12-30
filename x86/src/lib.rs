@@ -2,9 +2,9 @@
 
 use std::collections::{HashSet, HashMap};
 
-use bin::{BinFunc, DataBlock};
+use bin::{DataBlock};
 use capstone::{Capstone, arch::{self, BuildsCapstoneSyntax, BuildsCapstone, x86::X86OpMem}, InsnDetail, RegId};
-use ir::{Func, Name, Loc, Typ, Binding, Expr, Instr, BinOp, MonOp, Label, Namespace};
+use ir::{Name, Loc, Typ, Binding, Expr, Instr, BinOp, MonOp, Label, Namespace};
 
 #[derive(Debug)]
 pub enum X86Error {
@@ -211,21 +211,15 @@ pub fn gen_plt_data(plt: &[DataBlock], plt_deref_map: &HashMap<u64, Name>) -> Re
     Ok(map)
 }
 
-pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
-    let mut func = Func {
-        short_name,
-        addr: raw.addr,
-        args: vec![],
-        ret: None,
-        code: vec![]
-    };
+pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
+    let mut code = Vec::new();
 
     let cs = arch::BuildsCapstone::mode(Capstone::new().x86(), arch::x86::ArchMode::Mode64)
         .syntax(arch::x86::ArchSyntax::Att)
         .detail(true)
         .build()?;
 
-    let insns = cs.disasm_all(&raw.code, raw.addr)?;
+    let insns = cs.disasm_all(raw, base)?;
 
     for i in insns.as_ref() {
         // println!("{}", i);
@@ -241,7 +235,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
 
         let loc = Loc { addr: i.address() };
 
-        func.code.push(Instr::Label {
+        code.push(Instr::Label {
             loc,
             label: Label(i.address() as usize)
         });
@@ -252,12 +246,12 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
         match opcode {
             arch::x86::X86Insn::X86_INS_PUSH => {
                 let typ = op_typ(op(0));
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Deref(Expr::Name(RSP), typ),
                     src: op_expr(op(0), typ, instr_rip)
                 });
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc,
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
@@ -265,27 +259,27 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 });
             }
             arch::x86::X86Insn::X86_INS_LEAVE => {
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ: Typ::N64,
                     dest: Binding::Name(RSP),
                     src: Expr::Name(RBP)
                 });
 
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc,
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
                     src: Expr::BinOp(BinOp::Add, Box::new(Expr::Name(RSP)), Box::new(Expr::Lit(8, Typ::N64)))
                 });
 
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ: Typ::N64,
                     dest: Binding::Name(RBP),
                     src: Expr::Deref(Box::new(Expr::Name(RSP)), Typ::N64)
                 });
             }
             arch::x86::X86Insn::X86_INS_POP => {
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc,
                     typ: Typ::N64,
                     dest: Binding::Name(RSP),
@@ -293,20 +287,20 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 });
 
                 let typ = op_typ(op(0));
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ,
                     dest: op_binding(op(0), typ, instr_rip),
                     src: Expr::Deref(Box::new(Expr::Name(RSP)), typ)
                 });
             }
             arch::x86::X86Insn::X86_INS_RET => {
-                func.code.push(Instr::Return { loc, typ: Typ::N64, value: Some(Expr::Name(RAX)) });
+                code.push(Instr::Return { loc, typ: Typ::N64, value: Some(Expr::Name(RAX)) });
             }
             arch::x86::X86Insn::X86_INS_MOV | arch::x86::X86Insn::X86_INS_MOVZX |
             arch::x86::X86Insn::X86_INS_MOVABS | arch::x86::X86Insn::X86_INS_MOVSD |
             arch::x86::X86Insn::X86_INS_MOVSB | arch::x86::X86Insn::X86_INS_MOVSQ |
             arch::x86::X86Insn::X86_INS_MOVSX | arch::x86::X86Insn::X86_INS_MOVSXD => {
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ: op_typ(op(1)),
                     dest: op_binding(op(1), op_typ(op(1)), instr_rip),
                     src: op_expr(op(0), op_typ(op(0)), instr_rip)
@@ -316,7 +310,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 // RAX = signextend(EAX) etc
             }
             arch::x86::X86Insn::X86_INS_LEA => {
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ: op_typ(op(1)),
                     dest: op_binding(op(1), op_typ(op(1)), instr_rip),
                     src: op_addr_expr(op(0), instr_rip)
@@ -341,12 +335,12 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 };
 
                 let typ = op_typ(op(0));
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ,
                     dest: op_binding(op(1), typ, instr_rip),
                     src: Expr::BinOp(binop, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
                 });
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Name(FLAGS),
                     src: op_expr(op(1), typ, instr_rip)
@@ -360,7 +354,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                 };
 
                 let typ = op_typ(op(0));
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ,
                     dest: Binding::Name(FLAGS),
                     src: Expr::BinOp(binop, Box::new(op_expr(op(1), typ, instr_rip)), Box::new(op_expr(op(0), typ, instr_rip)))
@@ -380,7 +374,7 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     arch::x86::X86Insn::X86_INS_JNE => MonOp::CmpNe,
                     _ => unreachable!()
                 };
-                func.code.push(Instr::Branch {
+                code.push(Instr::Branch {
                     loc,
                     label: op_label(op(0)),
                     cond: Some(Expr::MonOp(rel, Box::new(Expr::Name(FLAGS))))
@@ -392,28 +386,28 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
                     arch::x86::X86Insn::X86_INS_JNS => MonOp::CmpGe,
                     _ => unreachable!()
                 };
-                func.code.push(Instr::Branch {
+                code.push(Instr::Branch {
                     loc,
                     label: op_label(op(0)),
                     cond: Some(Expr::MonOp(rel, Box::new(Expr::Name(FLAGS))))
                 });
             }
             arch::x86::X86Insn::X86_INS_JMP => {
-                func.code.push(Instr::Branch {
+                code.push(Instr::Branch {
                     loc,
                     label: op_label(op(0)),
                     cond: None
                 });
             }
             arch::x86::X86Insn::X86_INS_CALL => {
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ: Typ::N64,
                     dest: Binding::Name(RAX),
                     src: Expr::Call(Box::new( op_expr(op(0), Typ::N64, instr_rip)), vec![])
                 });
             }
             arch::x86::X86Insn::X86_INS_SETG => {
-                func.code.push(Instr::Store {
+                code.push(Instr::Store {
                     loc, typ: Typ::N8,
                     dest: op_binding(op(0), Typ::N8, instr_rip),
                     src: Expr::MonOp(MonOp::CmpGt, Box::new(Expr::Name(FLAGS)))
@@ -425,5 +419,5 @@ pub fn gen_ir_func(raw: &BinFunc, short_name: Name) -> Result<Func, X86Error> {
         }
     }
 
-    Ok(func)
+    Ok(code)
 }

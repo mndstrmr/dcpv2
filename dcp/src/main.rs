@@ -135,13 +135,7 @@ struct FunctionSet {
     entry_func: Option<ir::Name>
 }
 
-impl FunctionSet {
-    pub fn name_of_location(&self, location: u64) -> ir::Name {
-        *self.func_locations.get(&location).expect("Don't have an ir name for this location")
-    }
-}
-
-fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, String>, main_name: &str, global_idx: &mut u32) -> FunctionSet {
+fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, String>, main_name: &str, global_idx: &mut u32) -> FunctionSet {
     let mut funcs = FunctionSet {
         func_locations: HashMap::new(),
         func_args: HashMap::new(),
@@ -175,6 +169,20 @@ fn get_bin_symbols(bin: &bin::FuncsBinary, long_names: &mut HashMap<ir::Name, St
                 long_names.insert(*name, stdlib_names.get(name).unwrap().to_string());
             } else {
                 todo!("Unknown PLT entry: {name}")
+            }
+        } else if let bin::BinMeta::Entry { location } = meta {
+            if funcs.entry_func.is_some() {
+                continue
+            }
+
+            if let Some(func) = funcs.func_locations.get(location) {
+                funcs.entry_func = Some(*func);
+            } else {
+                let short_name = ir::Name(*global_idx, ir::Namespace::Global);
+                funcs.entry_func = Some(short_name);
+                funcs.func_locations.insert(*location, short_name);
+                *global_idx += 1;
+                // long_names.insert(short_name, main_name.clone());
             }
         }
     }
@@ -212,7 +220,8 @@ fn main() {
     };
 
     let bin = elf::read(&args.path).expect("Could not open ELF");
-    let bin = bin.functions_from_meta();
+
+    let all_code = x86::gen_ir(&bin.code, bin.base_addr).expect("Could not make initial translation");
 
     let mut long_names = HashMap::new();
 
@@ -226,21 +235,17 @@ fn main() {
         symbols.func_locations.insert(addr, name);
     }
 
-    for func in bin.funcs.iter() {
-        if !symbols.func_locations.contains_key(&func.addr) {
-            let name = ir::Name(global_idx, ir::Namespace::Global);
-            global_idx += 1;
-            symbols.func_locations.insert(func.addr, name);
-        }
+    let raw_funcs = ir::gen_funcs(all_code, &symbols.func_locations, &mut global_idx);
+
+    for func in &raw_funcs {
+        symbols.func_locations.insert(func.addr, func.short_name);
+        long_names.entry(func.short_name).or_insert_with(|| format!("@{:x}", func.addr));
     }
 
-    for func in bin.funcs.iter() {
-        if let Some(name) = func.name.as_deref() && !should_attempt(name) {
+    for mut func in raw_funcs {
+        if let Some(name) = long_names.get(&func.short_name) && !should_attempt(name) {
             continue
         }
-
-        let short_name = symbols.name_of_location(func.addr);
-        let mut func = x86::gen_ir_func(func, short_name).expect("Could not make initial translation");
 
         // Generate and apply stack frame
         ir::clean_dead_labels(&mut func.code);
@@ -269,9 +274,9 @@ fn main() {
         cfg.generate_backward_edges();
 
         func.args = ir::infer_func_args(&x86_abi, &cfg, &blocks);
-        symbols.func_args.insert(short_name, (func.args.len(), false)); // TODO: Allow variadics
+        symbols.func_args.insert(func.short_name, (func.args.len(), false)); // TODO: Allow variadics
 
-        df_funcs.insert(short_name, DataFlowAnalysisFunc {
+        df_funcs.insert(func.short_name, DataFlowAnalysisFunc {
             func, cfg, blocks, frame
         });
     }
@@ -297,6 +302,11 @@ fn main() {
                 continue
             };
             ir::demote_dead_calls(&x86_abi, &func.cfg, &mut func.blocks[..], &mut sometimes_read);
+        }
+
+        // Assume the entry function returns something
+        if let Some(entry) = symbols.entry_func {
+            sometimes_read.insert(entry);
         }
 
         for name in df_funcs.keys().cloned().collect::<Vec<_>>() {

@@ -83,6 +83,7 @@ pub fn drain_code_to_cfg(code: &mut Vec<Instr>) -> (Vec<CfgBlock>, Cfg) {
 }
 
 pub fn insert_in_callgraph(graph: &mut CallGraph, func: &Func) {
+    graph.add_node(func.short_name);
     Instr::visit_all(&func.code, &mut |instr| {
         instr.visit_top_exprs(&mut |e| e.visit(&mut |e| {
             if let Expr::Call(box Expr::Name(name), _) = e {

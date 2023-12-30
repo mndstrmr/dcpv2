@@ -287,6 +287,7 @@ pub enum Expr {
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     MonOp(MonOp, Box<Expr>),
     Deref(Box<Expr>, Typ),
+    Ref(Box<Expr>, Typ),
     Call(Box<Expr>, Vec<Expr>),
     StringLit(String)
 }
@@ -299,6 +300,7 @@ impl Display for Expr {
             Expr::BinOp(op, l, r) => write!(f, "({l} {op} {r})"),
             Expr::MonOp(op, r) => write!(f, "{op}{r}"),
             Expr::Deref(e, _) => write!(f, "(*{e})"),
+            Expr::Ref(e, _) => write!(f, "(&{e})"),
             Expr::Call(func, args) => {
                 write!(f, "{func}(")?;
                 for (a, arg) in args.iter().enumerate() {
@@ -308,7 +310,7 @@ impl Display for Expr {
                     write!(f, "{arg}")?;
                 }
                 write!(f, ")")
-            },
+            }
             Expr::StringLit(str) => write!(f, "\"{}\"", str)
         }
     }

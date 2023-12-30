@@ -4,7 +4,7 @@ use std::path::Path;
 
 use bin::{RawBinary, Arch, BinMeta, DataBlock};
 use elf::{ElfBytes, abi::{EM_X86_64}, endian::AnyEndian};
-use elf::abi::{DT_INIT_ARRAY, DT_INIT_ARRAYSZ, DT_FINI_ARRAY, DT_FINI_ARRAYSZ, STT_FUNC};
+use elf::abi::{DT_INIT_ARRAY, DT_INIT_ARRAYSZ, DT_FINI_ARRAY, DT_FINI_ARRAYSZ, STT_FUNC, STT_OBJECT};
 use elf::endian::EndianParse;
 
 #[derive(Debug)]
@@ -60,14 +60,21 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
 
     if let Some((symtab, strtab)) = res.symbol_table()? {
         for symbol in symtab.iter() {
-            if symbol.st_name == 0 || symbol.st_symtype() != STT_FUNC {
+            if symbol.st_name == 0 {
                 continue;
             }
 
-            meta.push(BinMeta::Name {
-                name: strtab.get(symbol.st_name as usize)?.to_string(),
-                location: symbol.st_value
-            });
+            if symbol.st_symtype() == STT_FUNC {
+                meta.push(BinMeta::FuncName {
+                    name: strtab.get(symbol.st_name as usize)?.to_string(),
+                    location: symbol.st_value
+                });
+            } else if symbol.st_symtype() == STT_OBJECT {
+                meta.push(BinMeta::ObjName {
+                    name: strtab.get(symbol.st_name as usize)?.to_string(),
+                    location: symbol.st_value
+                });
+            }
         }
     }
 
@@ -78,6 +85,19 @@ pub fn read<P: AsRef<Path>>(path: P) -> Result<RawBinary, ElfError> {
         for x in res.section_data_as_relas(&relas)? {
             let sym = symtab.get(x.r_sym as usize)?;
             meta.push(BinMeta::PltElement {
+                name: strtab.get(sym.st_name as usize)?.to_string(),
+                location: x.r_offset
+            });
+        }
+    }
+
+    if
+    let Some((symtab, strtab)) = res.dynamic_symbol_table()? &&
+        let Some(relas) = res.section_header_by_name(".rela.dyn")?
+    {
+        for x in res.section_data_as_relas(&relas)? {
+            let sym = symtab.get(x.r_sym as usize)?;
+            meta.push(BinMeta::ObjName {
                 name: strtab.get(sym.st_name as usize)?.to_string(),
                 location: x.r_offset
             });

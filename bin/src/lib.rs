@@ -29,7 +29,11 @@ pub enum BinMeta {
         start: u64,
         length: u64
     },
-    Name {
+    FuncName {
+        name: String,
+        location: u64
+    },
+    ObjName {
         name: String,
         location: u64
     },

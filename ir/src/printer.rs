@@ -61,6 +61,19 @@ fn write_expr_at_prec<W: std::fmt::Write>(f: &mut W, expr: &Expr, config: &CodeF
                 write!(f, ")")?;
             }
         }
+        Expr::Ref(expr, typ) => {
+            if prec > 10 {
+                write!(f, "(")?;
+            }
+            write!(f, "&")?;
+            if config.mem_types {
+                write!(f, "({typ})")?;
+            }
+            write_expr_at_prec(f, expr, config, 10)?;
+            if prec > 10 {
+                write!(f, ")")?;
+            }
+        }
         Expr::Call(func, args) => {
             if prec > 11 {
                 write!(f, "(")?;

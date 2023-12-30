@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{CfgBlock, Expr, Instr, Name, Abi, format_string_arg_count, FuncArg, Cfg};
+use crate::{CfgBlock, Expr, Instr, Name, Abi, format_string_arg_count, FuncArg, Cfg, Typ};
 use crate::dataflow::did_controlled_write;
 
 pub fn insert_args(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], own_args: &[FuncArg], funcs: &HashMap<Name, (usize, bool)>) {
@@ -42,12 +42,24 @@ pub fn insert_args(abi: &Abi, cfg: &Cfg, blocks: &mut [CfgBlock], own_args: &[Fu
     }
 }
 
-pub fn replace_names(block: &mut Vec<Instr>, funcs: &HashMap<u64, Name>) {
+pub fn replace_func_names(block: &mut Vec<Instr>, funcs: &HashMap<u64, Name>) {
     Instr::visit_mut_all(block, &mut |instr| {
         instr.visit_top_exprs_mut(&mut |e| {
             e.visit_mut_post(&mut |expr| if let Expr::Lit(addr, _) = expr {
                 if let Some(func) = funcs.get(&(*addr as u64)) {
                     *expr = Expr::Name(*func);
+                }
+            });
+        });
+    });
+}
+
+pub fn replace_obj_names(block: &mut Vec<Instr>, objs: &HashMap<u64, Name>) {
+    Instr::visit_mut_all(block, &mut |instr| {
+        instr.visit_top_exprs_mut(&mut |e| {
+            e.visit_mut_post(&mut |expr| if let Expr::Lit(addr, _) = expr {
+                if let Some(name) = objs.get(&(*addr as u64)) {
+                    *expr = Expr::Ref(Box::new(Expr::Name(*name)), Typ::N64);
                 }
             });
         });

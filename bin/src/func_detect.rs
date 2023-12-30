@@ -5,7 +5,7 @@ impl RawBinary {
         let mut function_starts = Vec::new();
 
         for meta in &self.meta {
-            let BinMeta::Name { name, location } = meta else {
+            let BinMeta::FuncName { name, location } = meta else {
                 continue;
             };
 

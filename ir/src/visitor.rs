@@ -79,7 +79,7 @@ impl UpdateSet {
         self.reads.get(&name).copied().unwrap_or(0)
     }
 
-    pub fn read_names<'a>(&'a self) -> Keys<'a, Name, usize> {
+    pub fn read_names(&self) -> Keys<Name, usize> {
         self.reads.keys()
     }
 
@@ -99,6 +99,7 @@ impl Expr {
             }
             Expr::MonOp(_, e) => e.visit(f),
             Expr::Deref(e, _) => e.visit(f),
+            Expr::Ref(e, _) => e.visit(f),
             Expr::Call(func, args) => {
                 func.visit(f);
                 for arg in args {
@@ -117,6 +118,7 @@ impl Expr {
             }
             Expr::MonOp(_, e) => e.visit_mut_post(f),
             Expr::Deref(e, _) => e.visit_mut_post(f),
+            Expr::Ref(e, _) => e.visit_mut_post(f),
             Expr::Call(func, args) => {
                 func.visit_mut_post(f);
                 for arg in args {

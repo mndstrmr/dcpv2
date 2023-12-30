@@ -131,6 +131,7 @@ fn parse_stdlib() -> (HashMap<ir::Name, usize>, HashMap<ir::Name, &'static str>,
 struct FunctionSet {
     func_locations: HashMap<u64, ir::Name>,
     func_args: HashMap<ir::Name, (usize, bool)>,
+    obj_locations: HashMap<u64, ir::Name>,
     got: HashMap<u64, ir::Name>,
     entry_func: Option<ir::Name>
 }
@@ -139,6 +140,7 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
     let mut funcs = FunctionSet {
         func_locations: HashMap::new(),
         func_args: HashMap::new(),
+        obj_locations: HashMap::new(),
         got: HashMap::new(),
         entry_func: None
     };
@@ -146,67 +148,90 @@ fn get_bin_symbols(bin: &bin::RawBinary, long_names: &mut HashMap<ir::Name, Stri
     let (stdlib_arities, _stdlib_names, stdlib_rev_names, stdlib_variadic) = parse_stdlib();
 
     for meta in &bin.meta {
-        if let bin::BinMeta::Name { location, name } = meta {
-            if *location == 0 {
-                continue
-            }
-
-            // if *name == main_name && let Some(entry_func) = funcs.entry_func {
-            //     assert!(!long_names.contains_key(&entry_func));
-            //     long_names.insert(entry_func, name.clone());
-            //     assert_eq!(funcs.func_locations.get(location), Some(&entry_func));
-            //     continue
-            // }
-
-            let short_name = ir::Name(*global_idx, ir::Namespace::Global);
-            // FIXME: If we already have an entry_func as indicated by the Entry bin meta, just overwrite
-            //        it with this one. Eventually we hope to be good enough to actually use _start, but
-            //        our function detection is having a bad time with it at the moment.
-            if *name == main_name {
-                funcs.entry_func = Some(short_name);
-            }
-            funcs.func_locations.insert(*location, short_name);
-            long_names.insert(short_name, name.clone());
-
-            *global_idx += 1;
-        } else if let bin::BinMeta::PltElement { location, name } = meta {
-            let short_name = match stdlib_rev_names.get(name.as_str()) {
-                Some(name) => {
-                    funcs.func_args.insert(*name, (
-                        *stdlib_arities.get(name).unwrap(),
-                        stdlib_variadic.contains(name)
-                    ));
-                    *name
-                },
-                None => {
-                    eprintln!("Warning: unrecognised PLT/GOT entry: {name}");
-                    *global_idx += 1;
-                    ir::Name(*global_idx - 1, ir::Namespace::Global)
+        match meta {
+            bin::BinMeta::Region { .. } => {}
+            bin::BinMeta::FuncName { location, name } => {
+                if *location == 0 {
+                    continue
                 }
-            };
 
-            funcs.got.insert(*location, short_name);
-            long_names.insert(short_name, name.clone());
-        } else if let bin::BinMeta::Entry { location } = meta {
-            if let Some(entry_func) = funcs.entry_func {
-                assert_eq!(funcs.func_locations.get(location), Some(&entry_func));
-                continue
-            }
+                // if *name == main_name && let Some(entry_func) = funcs.entry_func {
+                //     assert!(!long_names.contains_key(&entry_func));
+                //     long_names.insert(entry_func, name.clone());
+                //     assert_eq!(funcs.func_locations.get(location), Some(&entry_func));
+                //     continue
+                // }
 
-            if let Some(func) = funcs.func_locations.get(location) {
-                funcs.entry_func = Some(*func);
-            } else {
                 let short_name = ir::Name(*global_idx, ir::Namespace::Global);
-                funcs.entry_func = Some(short_name);
+                // FIXME: If we already have an entry_func as indicated by the Entry bin meta, just overwrite
+                //        it with this one. Eventually we hope to be good enough to actually use _start, but
+                //        our function detection is having a bad time with it at the moment.
+                if *name == main_name {
+                    funcs.entry_func = Some(short_name);
+                }
                 funcs.func_locations.insert(*location, short_name);
+                long_names.insert(short_name, name.clone());
+
                 *global_idx += 1;
-                // long_names.insert(short_name, main_name.clone());
             }
-        } else if let bin::BinMeta::FiniArrFunc { location } | bin::BinMeta::InitArrFunc { location } = meta {
-            funcs.func_locations.entry(*location).or_insert_with(|| {
+            bin::BinMeta::PltElement { location, name } => {
+                let short_name = match stdlib_rev_names.get(name.as_str()) {
+                    Some(name) => {
+                        funcs.func_args.insert(*name, (
+                            *stdlib_arities.get(name).unwrap(),
+                            stdlib_variadic.contains(name)
+                        ));
+                        *name
+                    },
+                    None => {
+                        eprintln!("Warning: unrecognised PLT/GOT entry: {name}");
+                        *global_idx += 1;
+                        ir::Name(*global_idx - 1, ir::Namespace::Global)
+                    }
+                };
+
+                funcs.got.insert(*location, short_name);
+                long_names.insert(short_name, name.clone());
+            }
+            bin::BinMeta::Entry { location } => {
+                if let Some(entry_func) = funcs.entry_func {
+                    assert_eq!(funcs.func_locations.get(location), Some(&entry_func));
+                    continue
+                }
+
+                if let Some(func) = funcs.func_locations.get(location) {
+                    funcs.entry_func = Some(*func);
+                } else {
+                    let short_name = ir::Name(*global_idx, ir::Namespace::Global);
+                    funcs.entry_func = Some(short_name);
+                    funcs.func_locations.insert(*location, short_name);
+                    *global_idx += 1;
+                    // long_names.insert(short_name, main_name.clone());
+                }
+            }
+            bin::BinMeta::InitArrFunc { location } => {
+                funcs.func_locations.entry(*location).or_insert_with(|| {
+                    *global_idx += 1;
+                    let name = ir::Name(*global_idx - 1, ir::Namespace::Global);
+                    long_names.insert(name, format!("initarr@{location:x}"));
+                    name
+                });
+            }
+            bin::BinMeta::FiniArrFunc { location } => {
+                funcs.func_locations.entry(*location).or_insert_with(|| {
+                    *global_idx += 1;
+                    let name = ir::Name(*global_idx - 1, ir::Namespace::Global);
+                    long_names.insert(name, format!("finiarr@{location:x}"));
+                    name
+                });
+            }
+            bin::BinMeta::ObjName { location, name } => {
+                let short_name = ir::Name(*global_idx, ir::Namespace::Global);
                 *global_idx += 1;
-                ir::Name(*global_idx - 1, ir::Namespace::Global)
-            });
+
+                funcs.obj_locations.insert(*location, short_name);
+                long_names.insert(short_name, name.clone());
+            }
         }
     }
 
@@ -293,7 +318,8 @@ fn main() {
         ir::tail_call_to_call_return(&mut func.code);
 
         // Update with names of known entities
-        ir::replace_names(&mut func.code, &symbols.func_locations);
+        ir::replace_func_names(&mut func.code, &symbols.func_locations);
+        ir::replace_obj_names(&mut func.code, &symbols.obj_locations);
         if let Some(rodata) = bin.rodata.as_ref() {
             ir::insert_string_lits(&mut func.code, &rodata.data, rodata.base_addr);
         }
@@ -369,6 +395,8 @@ fn main() {
 
             for block in blocks.iter_mut() {
                 ir::reduce_cmp(&mut block.code);
+                ir::reduce_ref_deref(&mut block.code);
+                ir::reduce_binop_to_identities(&mut block.code);
                 ir::reduce_binop_assoc_all(&mut block.code);
                 ir::reduce_binop_constants(&mut block.code);
                 ir::reduce_binop_identities(&mut block.code);

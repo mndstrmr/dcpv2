@@ -96,26 +96,49 @@ pub fn clean_else_to_fallthrough(code: &mut Vec<Instr>) {
     });
 }
 
-/// Replace (==).(a - b) with a == b, etc
+/// Replace (==)(a - b) with a == b, etc
 pub fn reduce_cmp(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut |expr| {
-            expr.visit_mut_post(&mut |e| if let Expr::MonOp(m, box Expr::BinOp(c, l, r)) = e {
-                match (*m, *c) {
-                    (MonOp::CmpEq, BinOp::And) if *l == *r && !l.contains_call() => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
-                    (MonOp::CmpNe, BinOp::And) if *l == *r && !l.contains_call() => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+            expr.visit_mut_post(&mut |e| {
+                if let Expr::MonOp(m, box Expr::BinOp(c, l, r)) = e {
+                    match (*m, *c) {
+                        (MonOp::CmpEq, BinOp::And) if *l == *r && !l.contains_call() => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+                        (MonOp::CmpNe, BinOp::And) if *l == *r && !l.contains_call() => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
 
-                    (MonOp::CmpEq, BinOp::Xor) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
-                    (MonOp::CmpNe, BinOp::Xor) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpEq, BinOp::Xor) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpNe, BinOp::Xor) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
 
-                    (MonOp::CmpEq, BinOp::Sub) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
-                    (MonOp::CmpNe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
-                    (MonOp::CmpLt, BinOp::Sub) => *e = Expr::BinOp(BinOp::Lt, Box::new(l.take()), Box::new(r.take())),
-                    (MonOp::CmpLe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Le, Box::new(l.take()), Box::new(r.take())),
-                    (MonOp::CmpGt, BinOp::Sub) => *e = Expr::BinOp(BinOp::Gt, Box::new(l.take()), Box::new(r.take())),
-                    (MonOp::CmpGe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Ge, Box::new(l.take()), Box::new(r.take())),
-                    _ => {}
+                        (MonOp::CmpEq, BinOp::Sub) => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpNe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpLt, BinOp::Sub) => *e = Expr::BinOp(BinOp::Lt, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpLe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Le, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpGt, BinOp::Sub) => *e = Expr::BinOp(BinOp::Gt, Box::new(l.take()), Box::new(r.take())),
+                        (MonOp::CmpGe, BinOp::Sub) => *e = Expr::BinOp(BinOp::Ge, Box::new(l.take()), Box::new(r.take())),
+                        _ => {}
+                    }
                 }
+
+                if let Expr::MonOp(m, l) = e {
+                    match m {
+                        MonOp::CmpEq => *e = Expr::BinOp(BinOp::Eq, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+                        MonOp::CmpNe => *e = Expr::BinOp(BinOp::Ne, Box::new(l.take()), Box::new(Expr::Lit(0, Typ::N64))),
+                        _ => {}
+                    }
+                }
+            });
+        });
+    }
+}
+
+/// Replace *&x and &*x with x
+pub fn reduce_ref_deref(code: &mut Vec<Instr>) {
+    for instr in code {
+        instr.visit_top_exprs_mut(&mut |expr| {
+            expr.visit_mut_post(&mut |e| match e {
+                Expr::Deref(box Expr::Ref(box x, _), _) => *e = x.take(),
+                Expr::Ref(box Expr::Deref(box x, _), _) => *e = x.take(),
+                _ => {}
             });
         });
     }
@@ -146,6 +169,21 @@ pub fn reduce_binop_assoc(expr: &mut Expr) {
 pub fn reduce_binop_assoc_all(code: &mut Vec<Instr>) {
     for instr in code {
         instr.visit_top_exprs_mut(&mut reduce_binop_assoc);
+    }
+}
+
+/// Replace a - a and a ^ a with 0
+pub fn reduce_binop_to_identities(code: &mut Vec<Instr>) {
+    for instr in code {
+        instr.visit_top_exprs_mut(&mut |expr| {
+            expr.visit_mut_post(&mut |e| if let Expr::BinOp(op, l, r) = e && l == r && !l.contains_call() {
+                match op {
+                    BinOp::Sub => *e = Expr::Lit(0, Typ::N64),
+                    BinOp::Xor => *e = Expr::Lit(0, Typ::N64),
+                    _ => {}
+                }
+            });
+        });
     }
 }
 

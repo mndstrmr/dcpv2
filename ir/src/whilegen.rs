@@ -73,6 +73,8 @@ pub fn for_init_search(code: &mut Vec<Instr>) {
                     unreachable!()
                 };
                 init.push(new_init);
+            } else {
+                i += 1
             }
         }
     })

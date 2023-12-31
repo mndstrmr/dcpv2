@@ -48,7 +48,7 @@ pub struct Loc {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Typ {
-    N8, N16, N32, N64
+    N8, N16, N32, N64, N128
 }
 
 impl Typ {
@@ -58,6 +58,7 @@ impl Typ {
             Typ::N16 => 2,
             Typ::N32 => 4,
             Typ::N64 => 8,
+            Typ::N128 => 16,
         }
     }
 }
@@ -65,6 +66,7 @@ impl Typ {
 impl Display for Typ {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Typ::N128 => "n128",
             Typ::N64 => "n64",
             Typ::N32 => "n32",
             Typ::N16 => "n16",
@@ -229,7 +231,7 @@ impl Display for Binding {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
-    Add, Sub, Mul, Div,
+    Add, Sub, Mul, Div, Mod,
     Lsl, Lsr, Asr,
     Eq, Ne, Lt, Le, Gt, Ge,
     And, Or, Xor
@@ -242,6 +244,7 @@ impl Display for BinOp {
             BinOp::Sub => f.write_char('-'),
             BinOp::Mul => f.write_char('*'),
             BinOp::Div => f.write_char('/'),
+            BinOp::Mod => f.write_char('%'),
             BinOp::Eq => f.write_str("=="),
             BinOp::Ne => f.write_str("!="),
             BinOp::Lt => f.write_str("<"),

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{Cfg, CfgBlock, Instr, Label, Loc};
+use crate::{BinOp, Cfg, CfgBlock, Expr, Instr, Label, Loc};
 
 fn explore_reachable(cfg: &Cfg, bubble: &HashSet<usize>, root: usize) -> HashSet<usize> {
     let mut reachable = HashSet::new();
@@ -70,7 +70,7 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, fallthro
                 let mut root_a = *outgoing.iter().nth(0).unwrap();
                 let mut root_b = *outgoing.iter().nth(1).unwrap();
 
-                let Instr::Branch { label, cond: Some(cond), loc } = code.pop().unwrap() else {
+                let Instr::Branch { label, cond: Some(mut cond), loc } = code.pop().unwrap() else {
                     panic!("bad terminator")
                 };
 
@@ -79,13 +79,13 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, fallthro
                 }
                 assert_eq!(root_a, label.0);
 
-                let reachable_a = explore_reachable(cfg, bubble, root_a);
-                let reachable_b = explore_reachable(cfg, bubble, root_b);
+                let mut reachable_a = explore_reachable(cfg, bubble, root_a);
+                let mut reachable_b = explore_reachable(cfg, bubble, root_b);
 
-                let reachable_both = reachable_a.intersection(&reachable_b).copied().collect::<HashSet<_>>();
+                let mut reachable_both = reachable_a.intersection(&reachable_b).copied().collect::<HashSet<_>>();
 
-                let true_then = reachable_a.difference(&reachable_both).copied().collect::<HashSet<_>>();
-                let false_then = reachable_b.difference(&reachable_both).copied().collect::<HashSet<_>>();
+                let mut true_then = reachable_a.difference(&reachable_both).copied().collect::<HashSet<_>>();
+                let mut false_then = reachable_b.difference(&reachable_both).copied().collect::<HashSet<_>>();
 
                 if Some(root_a) == fallthrough {
                     let false_then_code = generate_ifs_in(blocks, &false_then, fallthrough, cfg, root_b);
@@ -124,6 +124,42 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, fallthro
                     node_id = root_a;
                     outgoing = cfg.outgoing_for(node_id)
                 } else {
+                    loop {
+                        if cfg.outgoing_for(root_b).len() == 2 && cfg.outgoing_for(root_b).contains(&root_a) && blocks[root_b].code.len() == 1 {
+                            cond = cond.not();
+                            (root_a, root_b) = (root_b, root_a);
+                            std::mem::swap(&mut false_then, &mut true_then);
+
+                            continue;
+                        }
+
+                        if cfg.outgoing_for(root_a).len() == 2 && cfg.outgoing_for(root_a).contains(&root_b) && blocks[root_a].code.len() == 1 {
+                            let v: Vec<_> = cfg.outgoing_for(root_a).iter().copied().collect();
+                            let other = if v[0] == root_b { v[1] } else { v[0] };
+
+                            let Instr::Branch { label, cond: Some(mut clause), .. } = blocks[root_a].code.pop().unwrap() else {
+                                unreachable!()
+                            };
+                            if label.0 != other {
+                                clause = clause.not();
+                            }
+
+                            cond = Expr::BinOp(BinOp::And, Box::new(cond), Box::new(clause));
+                            root_a = other;
+
+                            // Kinda annoying to have to do this
+                            reachable_a = explore_reachable(cfg, bubble, root_a);
+                            reachable_b = explore_reachable(cfg, bubble, root_b);
+                            reachable_both = reachable_a.intersection(&reachable_b).copied().collect::<HashSet<_>>();
+                            true_then = reachable_a.difference(&reachable_both).copied().collect::<HashSet<_>>();
+                            false_then = reachable_b.difference(&reachable_both).copied().collect::<HashSet<_>>();
+
+                            continue;
+                        }
+
+                        break
+                    }
+
                     let mut common_root = None;
                     for node in &reachable_both {
                         let c = cfg.incoming_for(*node).iter().filter(|x| reachable_both.contains(*x) && !cfg.is_backward_edge(**x, *node)).count();

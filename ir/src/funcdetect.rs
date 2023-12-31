@@ -41,7 +41,7 @@ impl<'a> FunctionDetector<'a> {
         vec
     }
 
-    fn add_out_of_bounds(&mut self, code: &[Instr]) -> bool {
+    fn split_tail_calls(&mut self, code: &[Instr]) -> bool {
         let mut changed = false;
 
         let start_addr = code[0].loc().addr;
@@ -63,6 +63,52 @@ impl<'a> FunctionDetector<'a> {
 
         changed
     }
+
+    fn split_return_ends(&mut self, code: &[Instr]) -> bool {
+        let mut furthest_branch = code[0].loc().addr;
+        let start_addr = code[0].loc().addr;
+        let end_addr = code[code.len() - 1].loc().addr;
+
+        for (i, instr) in code.iter().enumerate() {
+            let mut is_return = false;
+
+            match instr {
+                Instr::Branch { label, .. } => {
+                    let addr = label.0 as u64;
+
+                    if addr < start_addr || addr > end_addr {
+                        // Then it's a tail-call-return, as per split_tail_calls
+                        is_return = true;
+                    } else {
+                        furthest_branch = furthest_branch.max(addr);
+                    }
+                }
+                Instr::Return { .. } => {
+                    is_return = true;
+                }
+                _ => {}
+            }
+
+            if is_return {
+                if i < code.len() - 1 && instr.loc().addr >= furthest_branch {
+                    self.add_alloc_if_not_present(code[i + 1].loc().addr);
+                    return true
+                }
+            }
+        }
+
+        false
+    }
+}
+
+fn is_only_labels(code: &[Instr]) -> bool {
+    for instr in code {
+        let Instr::Label { .. } = instr else {
+            return false
+        };
+    }
+
+    true
 }
 
 pub fn gen_funcs(mut code: Vec<Instr>, known_starts: &HashMap<u64, Name>, global_idx: &mut u32) -> Vec<Func> {
@@ -91,29 +137,37 @@ pub fn gen_funcs(mut code: Vec<Instr>, known_starts: &HashMap<u64, Name>, global
     }
 
     // 3. Walk over code again now we have a guess at what a function is, add function starts for
-    //    branches to outside of the function
-    let mut changed = true;
-    while changed {
-        changed = false;
-
+    //    branches to outside of the function.
+    // 4. In the same pass, if all the branches in a function end before a return (i.e. it would seem
+    //    that code under the return is not reachable) then split there as well.
+    'outer: loop {
         let vec = detector.ordered();
         assert_eq!(vec[0].0, code[0].loc().addr);
 
         let mut start = 0;
-        'outer: for j in 0..vec.len() {
-            for i in start..code.len() {
-                if code[i].loc().addr == vec[j + 1].0 {
-                    // The region start..i is a candidate for a function
-                    changed = changed || detector.add_out_of_bounds(&code[start..i]);
-                    start = i;
-                    continue 'outer
+        'inner: for j in 0..vec.len() {
+            if j != vec.len() - 1 {
+                for i in start..code.len() {
+                    if code[i].loc().addr == vec[j + 1].0 {
+                        // The region start..i is a candidate for a function
+                        if detector.split_tail_calls(&code[start..i]) || detector.split_return_ends(&code[start..i]) {
+                            continue 'outer
+                        }
+
+                        start = i;
+                        continue 'inner
+                    }
                 }
             }
 
             // The region start..end is a candidate
-            changed = changed || detector.add_out_of_bounds(&code[start..]);
+            if detector.split_tail_calls(&code[start..]) || detector.split_return_ends(&code[start..]) {
+                continue 'outer
+            }
             break
         }
+
+        break
     }
 
     let vec = detector.ordered();
@@ -121,26 +175,36 @@ pub fn gen_funcs(mut code: Vec<Instr>, known_starts: &HashMap<u64, Name>, global
     // Now finally collect into functions
     let mut funcs = Vec::new();
     'outer: for j in 0..vec.len() {
-        for i in 0..code.len() {
-            if code[i].loc().addr == vec[j + 1].0 {
-                funcs.push(Func {
-                    code: code.drain(0..i).collect(),
-                    addr: vec[j].0,
-                    short_name: vec[j].1,
-                    args: vec![],
-                    ret: None
-                });
-                continue 'outer
+        if j != vec.len() - 1 {
+            for i in 0..code.len() {
+                if code[i].loc().addr == vec[j + 1].0 {
+                    let code = code.drain(0..i).collect::<Vec<_>>();
+                    assert!(!code.is_empty());
+                    if !is_only_labels(&code) {
+                        funcs.push(Func {
+                            code,
+                            addr: vec[j].0,
+                            short_name: vec[j].1,
+                            args: vec![],
+                            ret: None
+                        });
+                    }
+                    continue 'outer
+                }
             }
         }
 
-        funcs.push(Func {
-            code: code.drain(..).collect(),
-            addr: vec[j].0,
-            short_name: vec[j].1,
-            args: vec![],
-            ret: None
-        });
+        let code = code.drain(..).collect::<Vec<_>>();
+        assert!(!code.is_empty());
+        if !is_only_labels(&code) {
+            funcs.push(Func {
+                code,
+                addr: vec[j].0,
+                short_name: vec[j].1,
+                args: vec![],
+                ret: None
+            });
+        }
         break
     }
 

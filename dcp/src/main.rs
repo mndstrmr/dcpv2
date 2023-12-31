@@ -387,6 +387,9 @@ fn main() {
 
         // reduce_cmp can change ref-counts, so need to run again
         for _ in 0..2 {
+            // At this stage:
+            // - Calls must appear either as Instr::Expr { Expr::Call } or Instr::Store { src: Expr::Call } but nowhere else
+            // - The only types of instrs are Store, Expr, Branch, Return
             if args.has_pass(INLINE) {
                 ir::inline_single_use_pairs(&x86_abi, &cfg, &mut blocks[..]);
                 ir::remove_dead_writes(&x86_abi, &cfg, &mut blocks[..]);

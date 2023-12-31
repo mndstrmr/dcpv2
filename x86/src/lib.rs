@@ -34,9 +34,20 @@ const R13: Name = Name(13, Namespace::Register);
 const R14: Name = Name(14, Namespace::Register);
 const R15: Name = Name(15, Namespace::Register);
 
-const FLAGS: Name = Name(16, Namespace::Register);
+const XMM0: Name = Name(15, Namespace::Register);
+const XMM1: Name = Name(16, Namespace::Register);
+const XMM2: Name = Name(17, Namespace::Register);
+const XMM3: Name = Name(18, Namespace::Register);
+const XMM4: Name = Name(19, Namespace::Register);
+const XMM5: Name = Name(20, Namespace::Register);
+const XMM6: Name = Name(21, Namespace::Register);
+const XMM7: Name = Name(22, Namespace::Register);
 
-const FS: Name = Name(17, Namespace::Register);
+const FLAGS: Name = Name(23, Namespace::Register);
+
+const DF: Name = Name(24, Namespace::Register);
+
+const FS: Name = Name(25, Namespace::Register);
 
 pub fn frame_ptr_name() -> Name {
     RBP
@@ -75,6 +86,14 @@ pub fn name_map() -> HashMap<Name, String> {
     map.insert(RAX, "rax".to_string());
     map.insert(RBX, "rbx".to_string());
     map.insert(FS, "fs".to_string());
+    map.insert(XMM0, "xmm0".to_string());
+    map.insert(XMM1, "xmm1".to_string());
+    map.insert(XMM2, "xmm2".to_string());
+    map.insert(XMM3, "xmm3".to_string());
+    map.insert(XMM4, "xmm4".to_string());
+    map.insert(XMM5, "xmm5".to_string());
+    map.insert(XMM6, "xmm6".to_string());
+    map.insert(XMM7, "xmm7".to_string());
     map
 }
 
@@ -96,6 +115,11 @@ fn reg_to_name(reg: RegId) -> Option<Name> {
         arch::x86::X86Reg::X86_REG_R13W | arch::x86::X86Reg::X86_REG_R13D | arch::x86::X86Reg::X86_REG_R13 => Some(R13),
         arch::x86::X86Reg::X86_REG_R14W | arch::x86::X86Reg::X86_REG_R14D | arch::x86::X86Reg::X86_REG_R14 => Some(R14),
         arch::x86::X86Reg::X86_REG_R15W | arch::x86::X86Reg::X86_REG_R15D | arch::x86::X86Reg::X86_REG_R15 => Some(R15),
+        arch::x86::X86Reg::X86_REG_XMM0 => Some(XMM0), arch::x86::X86Reg::X86_REG_XMM1 => Some(XMM1),
+        arch::x86::X86Reg::X86_REG_XMM2 => Some(XMM2), arch::x86::X86Reg::X86_REG_XMM3 => Some(XMM3),
+        arch::x86::X86Reg::X86_REG_XMM4 => Some(XMM4), arch::x86::X86Reg::X86_REG_XMM5 => Some(XMM5),
+        arch::x86::X86Reg::X86_REG_XMM6 => Some(XMM6), arch::x86::X86Reg::X86_REG_XMM7 => Some(XMM7),
+
         arch::x86::X86Reg::X86_REG_INVALID => None,
         x => panic!("Bad reg {x}")
     }
@@ -172,6 +196,7 @@ fn op_typ(op: &arch::x86::X86Operand) -> Typ {
         2 => Typ::N16,
         4 => Typ::N32,
         8 => Typ::N64,
+        16 => Typ::N128,
         _ => panic!("Bad type")
     }
 }
@@ -309,7 +334,8 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
             arch::x86::X86Insn::X86_INS_MOV | arch::x86::X86Insn::X86_INS_MOVZX |
             arch::x86::X86Insn::X86_INS_MOVABS | arch::x86::X86Insn::X86_INS_MOVSD |
             arch::x86::X86Insn::X86_INS_MOVSB | arch::x86::X86Insn::X86_INS_MOVSQ |
-            arch::x86::X86Insn::X86_INS_MOVSX | arch::x86::X86Insn::X86_INS_MOVSXD => {
+            arch::x86::X86Insn::X86_INS_MOVSX | arch::x86::X86Insn::X86_INS_MOVSXD |
+            arch::x86::X86Insn::X86_INS_MOVAPS | arch::x86::X86Insn::X86_INS_MOVSS | arch::x86::X86Insn::X86_INS_MOVQ => {
                 code.push(Instr::Store {
                     loc, typ: op_typ(op(1)),
                     dest: op_binding(op(1), op_typ(op(1)), instr_rip),
@@ -319,6 +345,32 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
             arch::x86::X86Insn::X86_INS_CBW | arch::x86::X86Insn::X86_INS_CWDE | arch::x86::X86Insn::X86_INS_CDQE => {
                 // RAX = signextend(EAX) etc
             }
+            arch::x86::X86Insn::X86_INS_CMOVL | arch::x86::X86Insn::X86_INS_CMOVLE |
+            arch::x86::X86Insn::X86_INS_CMOVG | arch::x86::X86Insn::X86_INS_CMOVGE |
+            arch::x86::X86Insn::X86_INS_CMOVE | arch::x86::X86Insn::X86_INS_CMOVNE |
+            arch::x86::X86Insn::X86_INS_CMOVB | arch::x86::X86Insn::X86_INS_CMOVBE |
+            arch::x86::X86Insn::X86_INS_CMOVA | arch::x86::X86Insn::X86_INS_CMOVAE => {
+                let inv_cond = match opcode {
+                    arch::x86::X86Insn::X86_INS_CMOVL | arch::x86::X86Insn::X86_INS_CMOVB => MonOp::CmpGe,
+                    arch::x86::X86Insn::X86_INS_CMOVLE | arch::x86::X86Insn::X86_INS_CMOVBE => MonOp::CmpGt,
+                    arch::x86::X86Insn::X86_INS_CMOVG | arch::x86::X86Insn::X86_INS_CMOVA => MonOp::CmpLe,
+                    arch::x86::X86Insn::X86_INS_CMOVGE | arch::x86::X86Insn::X86_INS_CMOVAE => MonOp::CmpLt,
+                    arch::x86::X86Insn::X86_INS_CMOVE => MonOp::CmpNe,
+                    arch::x86::X86Insn::X86_INS_CMOVNE => MonOp::CmpEq,
+                    _ => unreachable!()
+                };
+
+                code.push(Instr::Branch {
+                    loc,
+                    label: Label(i.address() as usize + i.len()),
+                    cond: Some(Expr::MonOp(inv_cond, Box::new(Expr::Name(FLAGS))))
+                });
+                code.push(Instr::Store {
+                    loc, typ: op_typ(op(1)),
+                    dest: op_binding(op(1), op_typ(op(1)), instr_rip),
+                    src: op_expr(op(0), op_typ(op(0)), instr_rip)
+                });
+            }
             arch::x86::X86Insn::X86_INS_LEA => {
                 code.push(Instr::Store {
                     loc, typ: op_typ(op(1)),
@@ -326,18 +378,42 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
                     src: op_addr_expr(op(0), instr_rip)
                 });
             }
+            arch::x86::X86Insn::X86_INS_IDIV => {
+                let typ = op_typ(op(0));
+                code.push(Instr::Store {
+                    loc, typ,
+                    dest: Binding::Name(RDX),
+                    src: Expr::BinOp(BinOp::Mod, Box::new(Expr::Name(RAX)), Box::new(op_expr(op(0), typ, instr_rip)))
+                });
+                code.push(Instr::Store {
+                    loc, typ,
+                    dest: Binding::Name(RAX),
+                    src: Expr::BinOp(BinOp::Div, Box::new(Expr::Name(RAX)), Box::new(op_expr(op(0), typ, instr_rip)))
+                });
+            }
+            arch::x86::X86Insn::X86_INS_MUL => {
+                let typ = op_typ(op(0));
+                // FIXME: The destination is technically RDX:RAX
+                code.push(Instr::Store {
+                    loc, typ,
+                    dest: Binding::Name(RAX),
+                    src: Expr::BinOp(BinOp::Mul, Box::new(Expr::Name(RAX)), Box::new(op_expr(op(0), typ, instr_rip)))
+                });
+            }
             arch::x86::X86Insn::X86_INS_SUB | arch::x86::X86Insn::X86_INS_ADD | arch::x86::X86Insn::X86_INS_IMUL |
-            arch::x86::X86Insn::X86_INS_IDIV | arch::x86::X86Insn::X86_INS_XOR | arch::x86::X86Insn::X86_INS_AND |
+            arch::x86::X86Insn::X86_INS_XOR | arch::x86::X86Insn::X86_INS_AND |
             arch::x86::X86Insn::X86_INS_OR | arch::x86::X86Insn::X86_INS_SHL | arch::x86::X86Insn::X86_INS_SAR |
-            arch::x86::X86Insn::X86_INS_SHR => {
+            arch::x86::X86Insn::X86_INS_SHR | arch::x86::X86Insn::X86_INS_PXOR |
+            arch::x86::X86Insn::X86_INS_SUBSS | arch::x86::X86Insn::X86_INS_ADDSS |
+            arch::x86::X86Insn::X86_INS_MULSS | arch::x86::X86Insn::X86_INS_DIVSS => {
                 let binop = match opcode {
-                    arch::x86::X86Insn::X86_INS_ADD => BinOp::Add,
-                    arch::x86::X86Insn::X86_INS_SUB => BinOp::Sub,
-                    arch::x86::X86Insn::X86_INS_IMUL => BinOp::Mul,
-                    arch::x86::X86Insn::X86_INS_IDIV => BinOp::Div,
+                    arch::x86::X86Insn::X86_INS_ADD | arch::x86::X86Insn::X86_INS_ADDSS => BinOp::Add,
+                    arch::x86::X86Insn::X86_INS_SUB | arch::x86::X86Insn::X86_INS_SUBSS => BinOp::Sub,
+                    arch::x86::X86Insn::X86_INS_IMUL | arch::x86::X86Insn::X86_INS_MULSS => BinOp::Mul,
+                    arch::x86::X86Insn::X86_INS_IDIV | arch::x86::X86Insn::X86_INS_DIVSS => BinOp::Div,
                     arch::x86::X86Insn::X86_INS_AND => BinOp::And,
                     arch::x86::X86Insn::X86_INS_OR => BinOp::Or,
-                    arch::x86::X86Insn::X86_INS_XOR => BinOp::Xor,
+                    arch::x86::X86Insn::X86_INS_XOR | arch::x86::X86Insn::X86_INS_PXOR => BinOp::Xor,
                     arch::x86::X86Insn::X86_INS_SHL => BinOp::Lsl,
                     arch::x86::X86Insn::X86_INS_SAR => BinOp::Asr,
                     arch::x86::X86Insn::X86_INS_SHR => BinOp::Lsr,
@@ -356,9 +432,9 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
                     src: op_expr(op(1), typ, instr_rip)
                 });
             }
-            arch::x86::X86Insn::X86_INS_CMP | arch::x86::X86Insn::X86_INS_TEST => {
+            arch::x86::X86Insn::X86_INS_CMP | arch::x86::X86Insn::X86_INS_TEST | arch::x86::X86Insn::X86_INS_COMISS => {
                 let binop = match opcode {
-                    arch::x86::X86Insn::X86_INS_CMP => BinOp::Sub,
+                    arch::x86::X86Insn::X86_INS_CMP | arch::x86::X86Insn::X86_INS_COMISS => BinOp::Sub,
                     arch::x86::X86Insn::X86_INS_TEST => BinOp::And,
                     _ => unreachable!()
                 };
@@ -390,16 +466,18 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
                     cond: Some(Expr::MonOp(rel, Box::new(Expr::Name(FLAGS))))
                 });
             }
-            // FIXME: Not sure how to interpret this
             arch::x86::X86Insn::X86_INS_JNS => {
-                let rel = match opcode {
-                    arch::x86::X86Insn::X86_INS_JNS => MonOp::CmpGe,
-                    _ => unreachable!()
-                };
                 code.push(Instr::Branch {
                     loc,
                     label: op_label(op(0)),
-                    cond: Some(Expr::MonOp(rel, Box::new(Expr::Name(FLAGS))))
+                    cond: Some(Expr::BinOp(BinOp::Ge, Box::new(Expr::Name(FLAGS)), Box::new(Expr::Lit(0, Typ::N64))))
+                });
+            }
+            arch::x86::X86Insn::X86_INS_JS => {
+                code.push(Instr::Branch {
+                    loc,
+                    label: op_label(op(0)),
+                    cond: Some(Expr::BinOp(BinOp::Lt, Box::new(Expr::Name(FLAGS)), Box::new(Expr::Lit(0, Typ::N64))))
                 });
             }
             arch::x86::X86Insn::X86_INS_JMP => {
@@ -432,16 +510,88 @@ pub fn gen_ir(raw: &[u8], base: u64) -> Result<Vec<Instr>, X86Error> {
                     src: Expr::Call(Box::new( op_expr(op(0), Typ::N64, instr_rip)), vec![])
                 });
             }
-            arch::x86::X86Insn::X86_INS_SETG => {
+            arch::x86::X86Insn::X86_INS_SETG | arch::x86::X86Insn::X86_INS_SETA |
+            arch::x86::X86Insn::X86_INS_SETGE | arch::x86::X86Insn::X86_INS_SETAE |
+            arch::x86::X86Insn::X86_INS_SETL | arch::x86::X86Insn::X86_INS_SETB |
+            arch::x86::X86Insn::X86_INS_SETLE | arch::x86::X86Insn::X86_INS_SETBE |
+            arch::x86::X86Insn::X86_INS_SETNE | arch::x86::X86Insn::X86_INS_SETE => {
+                let cmp = match opcode {
+                    arch::x86::X86Insn::X86_INS_SETG | arch::x86::X86Insn::X86_INS_SETA => MonOp::CmpGt,
+                    arch::x86::X86Insn::X86_INS_SETGE | arch::x86::X86Insn::X86_INS_SETAE => MonOp::CmpGe,
+                    arch::x86::X86Insn::X86_INS_SETL | arch::x86::X86Insn::X86_INS_SETB => MonOp::CmpLt,
+                    arch::x86::X86Insn::X86_INS_SETLE | arch::x86::X86Insn::X86_INS_SETBE => MonOp::CmpLe,
+                    arch::x86::X86Insn::X86_INS_SETNE => MonOp::CmpNe,
+                    arch::x86::X86Insn::X86_INS_SETE => MonOp::CmpEq,
+                    _ => unreachable!()
+                };
+
                 code.push(Instr::Store {
                     loc, typ: Typ::N8,
                     dest: op_binding(op(0), Typ::N8, instr_rip),
-                    src: Expr::MonOp(MonOp::CmpGt, Box::new(Expr::Name(FLAGS)))
+                    src: Expr::MonOp(cmp, Box::new(Expr::Name(FLAGS)))
                 });
+            }
+            arch::x86::X86Insn::X86_INS_NEG | arch::x86::X86Insn::X86_INS_NOT => {
+                let monop = match opcode {
+                    arch::x86::X86Insn::X86_INS_NEG => MonOp::Neg,
+                    arch::x86::X86Insn::X86_INS_NOT => MonOp::Not,
+                    _ => unreachable!()
+                };
+
+                let typ = op_typ(op(0));
+                code.push(Instr::Store {
+                    loc, typ: Typ::N8,
+                    dest: op_binding(op(0), typ, instr_rip),
+                    src: Expr::MonOp(monop, Box::new(op_expr(op(0), typ, instr_rip)))
+                });
+            }
+            arch::x86::X86Insn::X86_INS_STOSQ if arch_detail.x86().unwrap().prefix()[0] == arch::x86::X86Prefix::X86_PREFIX_REP as u32 as u8 => {
+                let typ = op_typ(op(0));
+                // if counter = 0, finish
+                code.push(Instr::Branch {
+                    loc,
+                    label: Label(i.address() as usize + i.len()),
+                    cond: Some(Expr::BinOp(BinOp::Eq, Box::new(Expr::Name(RCX)), Box::new(Expr::Lit(0, Typ::N32))))
+                });
+                // Do the store
+                code.push(Instr::Store {
+                    loc, typ,
+                    dest: op_binding(op(0), op_typ(op(0)), instr_rip),
+                    src: Expr::Name(RAX)
+                });
+                // Update RDI
+                code.push(Instr::Store {
+                    loc, typ: Typ::N64,
+                    dest: Binding::Name(RDI),
+                    src: Expr::BinOp(BinOp::Sub, Box::new(Expr::Name(RDI)), Box::new(
+                        Expr::BinOp(
+                            BinOp::Sub,
+                            Box::new(Expr::BinOp(BinOp::Mul, Box::new(Expr::Name(DF)), Box::new(Expr::Lit(typ.width() * 2, Typ::N64)))),
+                            Box::new(Expr::Lit(typ.width(), Typ::N64))
+                        )
+                    ))
+                });
+                // Decrement counter
+                code.push(Instr::Store {
+                    loc, typ: Typ::N64,
+                    dest: Binding::Name(RCX),
+                    src: Expr::BinOp(BinOp::Sub, Box::new(Expr::Name(RCX)), Box::new(Expr::Lit(1, Typ::N32)))
+                });
+                // redo
+                code.push(Instr::Branch {
+                    loc,
+                    label: Label(i.address() as usize),
+                    cond: None
+                });
+            }
+            arch::x86::X86Insn::X86_INS_CDQ => {
+                // todo!("cld")
             }
             arch::x86::X86Insn::X86_INS_NOP | arch::x86::X86Insn::X86_INS_ENDBR64 => {}
             arch::x86::X86Insn::X86_INS_HLT => code.push(Instr::Return { value: None, loc, typ: Typ::N64 }), // FIXME: ???
-            _ => panic!("Instruction '{}' not translated", i)
+            _ => {
+                eprintln!("Warning: Instruction '{}' not translated", i)
+            }
         }
     }
 

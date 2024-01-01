@@ -421,6 +421,8 @@ fn main() {
 
             ir::clean_dead_jumps(&mut func.code);
             ir::clean_dead_labels(&mut func.code);
+            ir::clean_dead_fallthrough_jumps(&mut func.code);
+            ir::clean_dead_labels(&mut func.code);
             ir::clean_else_to_fallthrough(&mut func.code);
             ir::clean_empty_true_then(&mut func.code);
 

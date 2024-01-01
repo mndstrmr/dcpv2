@@ -129,8 +129,6 @@ fn generate_ifs_in(blocks: &mut Vec<CfgBlock>, bubble: &HashSet<usize>, fallthro
                             cond = cond.not();
                             (root_a, root_b) = (root_b, root_a);
                             std::mem::swap(&mut false_then, &mut true_then);
-
-                            continue;
                         }
 
                         if cfg.outgoing_for(root_a).len() == 2 && cfg.outgoing_for(root_a).contains(&root_b) && blocks[root_a].code.len() == 1 {

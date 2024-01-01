@@ -283,7 +283,7 @@ impl Display for MonOp {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Name(Name),
     Lit(i64, Typ),
@@ -379,6 +379,14 @@ impl Expr {
             Expr::BinOp(BinOp::Gt, l, r) => Expr::BinOp(BinOp::Le, l, r),
 
             e => Expr::MonOp(MonOp::Not, Box::new(e))
+        }
+    }
+
+    pub fn is_constant(&self) -> bool {
+        match self {
+            Expr::Lit(_, _) => true,
+            Expr::StringLit(_) => true,
+            _ => false
         }
     }
 

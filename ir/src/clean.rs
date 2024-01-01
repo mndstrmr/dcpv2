@@ -158,7 +158,7 @@ pub fn reduce_binop_assoc(expr: &mut Expr) {
                 *e = Expr::BinOp(BinOp::Sub, Box::new(l.take()), Box::new(Expr::Lit(*x2 - *x1, *t)));
             }
             (BinOp::Add, BinOp::Add) => {
-                *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(*x1 + *x2, *t)));
+                *e = Expr::BinOp(BinOp::Add, Box::new(l.take()), Box::new(Expr::Lit(x1.wrapping_add(*x2), *t)));
             }
             _ => {}
         }

@@ -288,7 +288,7 @@ fn main() {
 
     for func in &raw_funcs {
         symbols.func_locations.insert(func.addr, func.short_name);
-        long_names.entry(func.short_name).or_insert_with(|| format!("@{:x}", func.addr));
+        long_names.entry(func.short_name).or_insert_with(|| format!("fun{:x}", func.addr));
     }
 
     for mut func in raw_funcs {
@@ -343,7 +343,7 @@ fn main() {
     // and deal with format strings too
     for DataFlowAnalysisFunc { blocks, func, cfg, .. } in df_funcs.values_mut() {
         ir::insert_args(&x86_abi, cfg, blocks, &func.args, &symbols.func_args);
-        ir::no_remove_inline_strings(blocks);
+        ir::inline_constants(&cfg, blocks);
         ir::update_format_string_args(&x86_abi, blocks, &symbols.func_args);
 
         // for block in blocks {
